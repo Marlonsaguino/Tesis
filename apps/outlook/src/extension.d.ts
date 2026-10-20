@@ -1,0 +1,2 @@
+﻿interface Window {emailAgentHost:{openOptions:()=>Promise<void>;validatePageAccount:(email:string)=>Promise<void>;pageAccount:{provider:string;email:string;tabId:number;slot:string}|null;config:{googleClientId:string;microsoftClientId:string;microsoftTenant:string;apiBaseUrl:string;pairingToken:string};ready:Promise<unknown>;microsoftAutoAllowed:(email:string)=>Promise<boolean>;microsoftRemember:(email:string,disconnected?:boolean)=>Promise<void>;microsoftFlow:(url:string,interactive?:boolean)=>Promise<string|undefined>;microsoftRedirect:()=>string}}
+

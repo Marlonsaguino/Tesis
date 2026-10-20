@@ -1,0 +1,11 @@
+node_modules/
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+.angular/
+dist/
+.build/
+*.tsbuildinfo
+/extension/apps/

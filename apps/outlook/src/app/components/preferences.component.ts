@@ -1,0 +1,47 @@
+import { Component, inject, OnInit, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { CommonModule } from '@angular/common';
+import { AgentClientService } from '../services/agent-client.service';
+import { PreferenceService } from '../services/preference.service';
+import { OutlookService } from '../services/outlook.service';
+
+@Component({selector:'app-preferences',standalone:true,imports:[CommonModule,FormsModule],template:`
+<div class="preferences-grid">
+<section class="content-card settings-card" aria-labelledby="preferences-title">
+  <div class="settings-heading"><i class="bi bi-sliders"></i><div><h3 id="preferences-title">Tu experiencia</h3><p>Personaliza cómo trabajas con tu correo.</p></div></div>
+  <label for="app-theme" class="form-label">Apariencia</label>
+  <select id="app-theme" class="form-select theme-select" [ngModel]="prefs.theme()" (ngModelChange)="prefs.update($event,prefs.strictMode(),prefs.llmEnabled())"><option value="light">Tema claro</option><option value="dark">Tema oscuro</option></select>
+  <label class="setting-option"><input class="form-check-input" type="checkbox" [ngModel]="prefs.strictMode()" (ngModelChange)="prefs.update(prefs.theme(),$event,prefs.llmEnabled())"><span><strong>Revisión estricta</strong><small>Revisa todas las propuestas antes de ejecutarlas.</small></span></label>
+  <p class="setting-note"><i class="bi bi-shield-check"></i> Enviar correos y mover a papelera siempre requieren tu aprobación. Desactivar esta opción no habilita acciones automáticas.</p>
+  <div class="connection-status"><span class="status-dot" [class.connected]="mail.isAuthenticated()"></span><div><strong>{{mail.operationMode() === 'simulated' ? 'Buzón de demostración' : 'Buzón de Outlook'}}</strong><small>{{mail.isAuthenticated() ? 'Sesión de Microsoft iniciada' : 'Sin sesión de Microsoft'}}. Los permisos se solicitan cuando se necesitan.</small></div></div>
+</section>
+<section class="content-card settings-card" aria-labelledby="ai-preferences-title">
+  <div class="settings-heading"><i class="bi bi-stars"></i><div><h3 id="ai-preferences-title">Asistente de inteligencia artificial</h3><p>Comprende tus mensajes y prepara respuestas.</p></div></div>
+  <label class="setting-option ai-switch"><input class="form-check-input" type="checkbox" [ngModel]="prefs.llmEnabled()" (ngModelChange)="prefs.update(prefs.theme(),prefs.strictMode(),$event)"><span><strong>Permitir asistencia con IA</strong><small>{{prefs.llmEnabled() ? 'La IA está habilitada para tus consultas.' : 'Se utiliza el motor local de reglas.'}}</small></span></label>
+  @if(config(); as cfg) {
+    <div class="provider-details"><div><span>Proveedor</span><strong>{{cfg.provider === 'gemini' ? 'Google Gemini' : cfg.provider === 'anthropic' ? 'Anthropic Claude' : 'Ollama local'}}</strong></div><div><span>Modelo configurado</span><strong>{{cfg.model || 'Sin modelo'}}</strong></div><div><span>Límites por consulta</span><strong>{{cfg.message_limit}} mensajes · {{cfg.max_output_tokens}} tokens de salida</strong></div></div>
+    <p class="setting-note"><i class="bi bi-info-circle"></i> {{cfg.configured ? 'Configuración disponible. Una respuesta en el chat permite comprobar la conexión real.' : 'Falta configurar el modelo o la clave en el servidor.'}}</p>
+  } @else if(!configError()) {<p class="small text-secondary" role="status">Consultando configuración…</p>}
+  @if(configError()) {<p class="alert alert-warning small" role="status">{{configError()}}</p>}
+  <button class="btn btn-sm btn-outline-primary" (click)="loadConfiguration()"><i class="bi bi-arrow-clockwise"></i> Actualizar información</button>
+  <p class="small text-secondary mt-2 mb-0">Consultar esta información no genera una respuesta de IA.</p>
+  <details class="privacy-details"><summary>Datos compartidos y consumo</summary><p>Se comparte con el proveedor un extracto limitado de los correos cargados y el historial reciente del chat. Se prioriza el correo seleccionado. No se comparten tokens de Microsoft ni archivos adjuntos.</p><p>Comprueba el nivel y los límites de tu cuenta del proveedor antes de usarla. Utiliza correos de prueba si tu plan permite que los datos se usen para mejorar productos.</p><p>Sin un modelo configurado se informa del error; no se presenta una respuesta por reglas como si fuera una respuesta de IA.</p></details>
+</section>
+</div><section class="content-card settings-card microsoft-registration" aria-labelledby="microsoft-registration-title"><div class="settings-heading"><i class="bi bi-microsoft"></i><div><h3 id="microsoft-registration-title">Conexión de Microsoft</h3><p>Esta dirección debe estar registrada en tu aplicación de Microsoft Entra.</p></div></div><label class="form-label" for="microsoft-redirect">Dirección de retorno de esta extensión</label><input id="microsoft-redirect" class="form-control" readonly [value]="microsoftRedirect" (focus)="$any($event.target).select()"><div class="d-flex flex-wrap gap-2 mt-3"><button type="button" class="btn btn-outline-primary btn-sm" (click)="copyMicrosoftRedirect()">Copiar dirección</button><button type="button" class="btn btn-outline-secondary btn-sm" (click)="openExtensionOptions()">Opciones de la extensión</button><a href="https://entra.microsoft.com/" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-sm">Abrir Microsoft Entra</a></div><p class="small text-secondary mt-3 mb-0" role="status">{{copyStatus()}}</p><details class="privacy-details" [open]="!mail.isAuthenticated()"><summary>Microsoft muestra redirect_uri</summary><p>Selecciona Registros de aplicaciones y abre la aplicación con ID <strong>{{microsoftClientId}}</strong>. En Autenticación, añade la dirección anterior como <strong>Aplicación de página única (SPA)</strong> y guarda. Después cierra la ventana del error y vuelve a conectar Outlook.</p><p>Este registro se hace en Microsoft. La extensión no puede cambiarlo desde el navegador.</p></details></section>`,styles:[`
+:host{display:block}.preferences-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:20px;margin-bottom:24px;align-items:start}.settings-card{padding:24px}.settings-heading{display:flex;gap:12px;margin-bottom:24px}.settings-heading>i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:18px;flex-shrink:0}.settings-heading h3{font-size:16px;font-weight:700;margin:1px 0 5px}.settings-heading p{font-size:13px;color:var(--ui-muted);margin:0}.theme-select{max-width:220px}.setting-option{display:flex;align-items:flex-start;gap:12px;padding:20px 0;cursor:pointer}.setting-option input{flex-shrink:0;width:18px;height:18px;margin-top:2px}.setting-option strong,.setting-option small{display:block}.setting-option small{color:var(--ui-muted);line-height:1.6;margin-top:5px}.setting-note{display:flex;gap:9px;color:var(--ui-muted);font-size:12px;line-height:1.7}.setting-note i{color:var(--ui-primary);flex-shrink:0}.connection-status{border-top:1px solid var(--ui-border);margin-top:24px;padding-top:20px;display:flex;gap:10px}.connection-status strong,.connection-status small{display:block}.connection-status small{font-size:12px;line-height:1.7;color:var(--ui-muted);margin-top:5px}.status-dot{width:8px;height:8px;background:var(--ui-muted);border-radius:50%;margin-top:6px;flex-shrink:0}.status-dot.connected{background:#16a36d}.ai-switch{padding-top:0}.provider-details{border:1px solid var(--ui-border);border-radius:12px;padding:4px 15px;margin-bottom:16px}.provider-details>div{display:flex;justify-content:space-between;gap:18px;padding:12px 0;font-size:12px}.provider-details>div+div{border-top:1px solid var(--ui-border)}.provider-details span{color:var(--ui-muted)}.provider-details strong{text-align:right;overflow-wrap:anywhere}.privacy-details{margin-top:20px;border-top:1px solid var(--ui-border);padding-top:15px;font-size:12px;color:var(--ui-muted)}.privacy-details summary{font-weight:600;cursor:pointer;color:var(--ui-text)}.privacy-details p{margin:12px 0 0;line-height:1.7}@media(max-width:1050px){.preferences-grid{grid-template-columns:1fr}}@media(max-width:575px){.settings-card{padding:18px}.provider-details>div{flex-direction:column;gap:4px}.provider-details strong{text-align:left}}
+`]})
+export class PreferencesComponent implements OnInit {
+ readonly prefs=inject(PreferenceService);readonly mail=inject(OutlookService);private readonly agent=inject(AgentClientService);
+ readonly config=signal<{provider:string;model:string;configured:boolean;max_output_tokens:number;message_limit:number}|null>(null);
+ readonly configError=signal('');
+ readonly microsoftRedirect=window.emailAgentHost.microsoftRedirect();
+ readonly microsoftClientId=window.emailAgentHost.config.microsoftClientId;
+ readonly copyStatus=signal('');
+ async copyMicrosoftRedirect():Promise<void>{try{await navigator.clipboard.writeText(this.microsoftRedirect);this.copyStatus.set('Dirección copiada. Añádela como SPA en Microsoft Entra.');}catch{this.copyStatus.set('Selecciona y copia manualmente la dirección del campo.');}}
+ openExtensionOptions():void{void window.emailAgentHost.openOptions();}
+ ngOnInit():void{this.loadConfiguration();}
+ loadConfiguration():void{
+   this.configError.set('');
+   this.agent.getConfiguration().subscribe({next:cfg=>this.config.set(cfg),error:()=>{this.config.set(null);this.configError.set('No se pudo consultar la configuración. Comprueba que el servidor esté iniciado.');}});
+ }
+}

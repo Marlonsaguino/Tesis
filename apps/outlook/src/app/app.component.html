@@ -1,0 +1,927 @@
+<!-- ════════════════════════════════════════════════════════════════════
+     EMAILAGENT AI — OUTLOOK (Microsoft 365 Professional Interface)
+     ════════════════════════════════════════════════════════════════════ -->
+<a class="skip-link" href="#main-content">Ir al contenido</a>
+<div class="app-shell" [class.floating-chat]="isFloating" [class.mobile-detail-open]="mobileDetailOpen()">
+  @if(editingAction(); as action) { <app-action-editor [action]="action" (closed)="editingAction.set(null)" /> }
+  @if(outlookService.composer(); as draft) { <app-mail-composer [draft]="draft" /> }
+
+
+  <footer class="brand-credits" aria-label="Autores del proyecto">NexoMail · Proyecto de tesis <span>Marlon Aguiño · Jonathan Pérez</span></footer>
+
+  <!-- ═══════════════════════════════════════════════
+       TOPBAR (Microsoft 365 Outlook Header)
+       ═══════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="d-flex align-items-center gap-2 gap-md-3">
+      <!-- Menú hamburguesa (Móvil / Desktop Toggle) -->
+      <button class="btn btn-sm btn-link text-secondary p-1 ms-1"
+              (click)="nav.toggleSidebar()"
+              aria-label="Mostrar u ocultar navegación" [attr.aria-expanded]="nav.sidebarOpen()"
+              title="Mostrar / ocultar menú lateral"
+              style="font-size:1.25rem; text-decoration:none;">
+        <i class="bi bi-list"></i>
+      </button>
+
+      <!-- Logo / Marca -->
+      <a class="topbar-brand" href="#" (click)="$event.preventDefault(); navigate('bandeja')">
+        <img class="nexomail-logo" src="./nexomail.svg" width="34" height="34" alt="" />
+        <span>{{ projectName }}</span>
+        <span class="brand-badge d-none d-sm-inline">OUTLOOK</span>
+      </a>
+
+      <!-- Selector de Modo con Alto Contraste: Real (Graph) vs Simulado -->
+      <button type="button" class="mode-toggle-pill ms-2" [disabled]="!!executingActionId() || !!authorizingActionId()"
+           [class.mode-real]="outlookService.operationMode() === 'real'"
+           [class.mode-sim]="outlookService.operationMode() === 'simulated'"
+           (click)="toggleOperationMode()"
+           title="Clic para alternar entre Modo Real (Outlook API) y Modo Simulado (Demo)">
+        @if (outlookService.operationMode() === 'real') {
+          <span class="mode-pulse" style="background:#16a34a;"></span>
+          <i class="bi bi-cloud-check-fill"></i>
+          <span>Outlook real</span>
+        } @else {
+          <span class="mode-pulse" style="background:#d97706;"></span>
+          <i class="bi bi-flask-fill"></i>
+          <span>Simulador</span>
+        }
+        <i class="bi bi-arrow-left-right opacity-75 ms-1" style="font-size:0.75rem;"></i>
+      </button>
+    </div>
+
+    <div class="topbar-actions">
+      <!-- Acciones Pendientes en Topbar -->
+      @if (actionService.pendingCount() > 0) {
+        <button class="btn btn-warning btn-sm rounded-pill px-3 d-flex align-items-center gap-1 shadow-sm fw-bold text-dark"
+                (click)="navigate('acciones')">
+          <i class="bi bi-shield-exclamation text-dark"></i>
+          <span class="d-none d-sm-inline">Acciones Pendientes</span>
+          <span class="badge bg-dark text-white ms-1">{{ actionService.pendingCount() }}</span>
+        </button>
+      }
+
+      <!-- Indicador FastAPI Backend -->
+      <div class="backend-indicator d-none d-md-inline-flex"
+           [title]="isBackendConnected() ? 'El servicio del agente está disponible' : 'No se pudo conectar con el servicio del agente'">
+        @if (isBackendLoading()) {
+          <span class="spinner-border spinner-border-sm text-secondary" style="width:.65rem;height:.65rem;"></span>
+        } @else {
+          <span class="status-dot" [class.ok]="isBackendConnected()" [class.error]="!isBackendConnected()"></span>
+        }
+        <span class="d-none d-lg-inline">{{isBackendLoading() ? 'Comprobando…' : isBackendConnected() ? 'Agente disponible' : 'Servidor de IA sin conexión'}}</span>
+      </div>
+
+      <!-- Usuario y Sesión MSAL -->
+      @if (outlookService.isAuthenticated()) {
+        <div class="d-flex align-items-center gap-2">
+          <div class="d-none d-lg-block topbar-user-info text-end">
+            <div class="topbar-user-name">
+              {{ outlookService.userProfile()?.displayName || outlookService.currentAccount()?.name || 'Usuario' }}
+            </div>
+            <div class="topbar-user-email">
+              {{ outlookService.userProfile()?.mail || outlookService.currentAccount()?.username }}
+            </div>
+          </div>
+          <div class="topbar-avatar" title="Cuenta de Microsoft conectada">
+            {{ (outlookService.userProfile()?.displayName || outlookService.currentAccount()?.name || 'U').charAt(0).toUpperCase() }}
+          </div>
+          <button class="btn btn-outline-secondary btn-sm rounded-pill px-2"
+                  (click)="disconnectOutlook()"
+                  [disabled]="outlookService.isLoading() || !!executingActionId() || !!authorizingActionId()"
+                  title="Cerrar sesión de Microsoft" aria-label="Cerrar sesión de Microsoft">
+            <i class="bi bi-box-arrow-right"></i>
+            <span class="d-none d-lg-inline ms-1">Salir</span>
+          </button>
+        </div>
+      } @else {
+        <button class="btn btn-primary btn-sm rounded-pill px-3 d-flex align-items-center gap-1 fw-semibold shadow-sm"
+                (click)="connectOutlook()" aria-label="Conectar Outlook"
+                [disabled]="outlookService.isLoading() || !!executingActionId() || !!authorizingActionId()">
+          @if (outlookService.isLoading()) {
+            <span class="spinner-border spinner-border-sm"></span>
+          } @else {
+            <i class="bi bi-microsoft"></i>
+          }
+          <span class="d-none d-sm-inline">Conectar Outlook</span>
+        </button>
+      }
+    </div>
+  </header>
+
+  <!-- Banner de Notificación de Acciones / Errores de Graph -->
+  @if (actionBanner(); as banner) {
+    <div role="status" aria-live="polite" class="action-banner alert d-flex align-items-center justify-content-between m-0 rounded-0"
+         [class.alert-success]="banner.type === 'success'"
+         [class.alert-danger]="banner.type === 'danger'">
+      <div class="d-flex align-items-center gap-2">
+        @if (banner.type === 'success') {
+          <i class="bi bi-check-circle-fill text-success fs-5"></i>
+        } @else {
+          <i class="bi bi-exclamation-triangle-fill text-danger fs-5"></i>
+        }
+        <span>{{ banner.text }}</span>@if(banner.type === 'danger' && !outlookService.isAuthenticated()){<button type="button" class="btn btn-sm btn-outline-primary ms-2" (click)="navigate('configuracion')">Revisar conexión</button>}
+      </div>
+      <button type="button" class="btn-close" (click)="actionBanner.set(null)" aria-label="Cerrar aviso"></button>
+    </div>
+  }
+
+  <!-- ═══════════════════════════════════════════════
+       CUERPO: SIDEBAR + CONTENIDO
+       ═══════════════════════════════════════════════ -->
+  <div class="insights-summary" role="status" aria-live="polite">
+    Análisis local automático · {{outlookService.folderMessages().length}} correos cargados · {{outlookService.securityAlerts().length}} con señales de riesgo
+    @if(outlookService.lastIncomingSync();as date){<span> · Actualizado {{date | date:'HH:mm'}}</span>}
+    @if(outlookService.incomingSyncError()){<p>{{outlookService.incomingSyncError()}}</p>}
+    @if(outlookService.securityAlerts().length){<details><summary>Revisar avisos de seguridad</summary><ul>@for(message of outlookService.securityAlerts();track message.id){<li><strong>{{message.subject}}</strong> — {{outlookService.insightsFor(message).label}}<ul>@for(reason of outlookService.insightsFor(message).reasons;track reason){<li>{{reason}}</li>}</ul></li>}</ul><p>Comprueba estas solicitudes por otro canal antes de responder o abrir enlaces.</p></details>}
+  </div>
+  <div class="app-body">
+
+    <!-- Overlay móvil -->
+    @if (nav.sidebarOpen() && !isDesktop()) {
+      <div class="sidebar-overlay" (click)="nav.toggleSidebar()"></div>
+    }
+
+    <!-- ─── SIDEBAR ─── -->
+    <aside class="sidebar" [class.collapsed]="!nav.sidebarOpen()">
+      <nav class="sidebar-nav" aria-label="Navegación principal">
+        <span class="sidebar-section-label">Gestión de Correo</span>
+        @for (item of nav.navItems; track item.id) {
+          <a class="nav-item"
+             [class.active]="nav.activeSection() === item.id"
+             [attr.aria-current]="nav.activeSection() === item.id ? 'page' : null"
+             (click)="navigate(item.id)"
+             href="#"
+             (click)="$event.preventDefault()">
+            <i class="bi nav-icon" [class]="item.icon"></i>
+            <span>{{ item.label }}</span>
+
+            <!-- Badge de no leídos en Bandeja -->
+            @if (item.id === 'bandeja' && outlookService.unreadCount() > 0) {
+              <span class="nav-badge">{{ outlookService.unreadCount() }}</span>
+            }
+
+            <!-- Badge de acciones pendientes -->
+            @if (item.id === 'acciones' && actionService.pendingCount() > 0) {
+              <span class="nav-badge nav-badge-warning">{{ actionService.pendingCount() }}</span>
+            }
+          </a>
+        }
+      </nav>
+
+      <!-- Footer del Sidebar: Estado del Proveedor -->
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-title">
+          <i class="bi bi-microsoft text-info"></i>
+          <span>Outlook conectado a ti</span>
+        </div>
+        <div class="sidebar-footer-mode">
+          Modo actual: <strong class="text-white">{{ outlookService.operationMode() === 'real' ? 'Correo real' : 'Datos de demostración' }}</strong>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── ÁREA DE CONTENIDO PRINCIPAL ─── -->
+    <main class="content-area" id="main-content" tabindex="-1">
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 1: BANDEJA DE ENTRADA (Split Master-Detail)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'bandeja') {
+        <div class="inbox-container">
+          @if(outlookService.operationMode()==='real') {
+            <section class="delivery-monitor" aria-label="Avisos de entrega de correo">
+              <div class="delivery-monitor-heading">
+                <span><i class="bi bi-envelope-exclamation me-1"></i> Entrega de correo</span>
+                <button class="btn btn-sm btn-outline-secondary" [disabled]="outlookService.deliveryChecking()" (click)="outlookService.refreshDeliveryReports()">{{outlookService.deliveryChecking() ? 'Revisando…' : 'Revisar avisos'}}</button>
+              </div>
+              @if(outlookService.deliveryCheckError()) {<p class="text-danger mb-1" role="status">{{outlookService.deliveryCheckError()}}</p>}
+              @if(outlookService.deliveryReports().length) {
+                <div class="text-danger fw-semibold" role="status">Hay {{outlookService.deliveryReports().length}} aviso(s) de entrega fallida en Entrada. Revisa el destinatario y el motivo antes de volver a enviar.</div>
+                <details class="delivery-report-list"><summary>Ver avisos detectados</summary>
+                @for(report of outlookService.deliveryReports();track report.id) {
+                  <article class="delivery-report"><strong>{{report.subject}}</strong><span class="text-secondary ms-2">{{report.received | date:'short'}}</span><pre>{{report.text}}</pre></article>
+                }
+                </details>
+              } @else if(outlookService.deliveryCheckedAt()) {
+                <p class="mb-0">No se detectaron avisos en la revisión limitada. Esto no confirma que los correos hayan sido entregados.</p>
+              } @else {<p class="mb-0">Aceptar un envío no confirma su entrega. Revisa los avisos después de enviar.</p>}
+              <small class="text-secondary">Se revisan hasta 50 mensajes recientes de Entrada de los últimos 14 días. Los avisos pueden tardar en llegar. No se comprueban otras carpetas ni se reenvía automáticamente.
+              @if(outlookService.deliveryCheckedAt();as checked) { Última revisión: {{checked | date:'shortTime'}}.}
+              </small>
+            </section>
+          }
+
+          <app-mail-toolbar [class.drafts-view]="outlookService.activeFolder() === 'localdrafts'" />
+          @if(outlookService.activeFolder() !== 'localdrafts') {
+
+          <!-- Cinta de Control del Simulador cuando está activo -->
+          @if (outlookService.operationMode() === 'simulated') {
+            <div class="simulator-ribbon">
+              <div class="d-flex align-items-center gap-2">
+                <span class="simulator-badge">
+                  <i class="bi bi-flask-fill"></i> ENTORNO SIMULADOR
+                </span>
+                <span class="simulator-hint d-none d-md-inline">
+                  Datos de prueba interactivos. Prueba borradores, categorías y confirmaciones con datos ficticios.
+                </span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-simulator-action" (click)="simulateNewEmail()">
+                  <i class="bi bi-plus-circle-fill me-1"></i> Simular Correo Entrante
+                </button>
+                <button class="btn btn-sm btn-simulator-reset" (click)="resetDemoData()">
+                  <i class="bi bi-arrow-counterclockwise me-1"></i> Restablecer Demo
+                </button>
+              </div>
+            </div>
+          }
+
+          <!-- Barra superior de filtros de la bandeja -->
+          <div class="inbox-toolbar">
+            <div class="d-flex align-items-center gap-2 flex-grow-1 flex-wrap">
+              <!-- Buscador -->
+              <div class="inbox-search">
+                <i class="bi bi-search text-muted ms-3"></i>
+                <input type="text"
+                       class="form-control border-0 bg-transparent ps-2 py-1"
+                       aria-label="Buscar mensajes cargados" placeholder="Buscar por remitente, asunto o contenido…"
+                       [value]="outlookService.searchQuery()"
+                       (input)="onSearch($any($event.target).value)">
+                @if (outlookService.searchQuery()) {
+                  <button class="btn btn-sm btn-link text-muted me-2" (click)="outlookService.clearSearch()">
+                    <i class="bi bi-x-circle-fill"></i>
+                  </button>
+                }
+              </div>
+
+              <!-- Botón Sincronizar -->
+              <button class="btn btn-outline-primary btn-sm rounded-pill px-3 fw-semibold"
+                      (click)="refreshEmails()"
+                      [disabled]="outlookService.isLoading() || !!executingActionId() || !!authorizingActionId()">
+                <i class="bi bi-arrow-clockwise me-1" [class.spin]="outlookService.isLoading()"></i>
+                Sincronizar
+              </button>
+            </div>
+
+            <!-- Chips de Filtro por Categoría con Alto Contraste -->
+            <div class="insight-options"><label><input type="checkbox" [checked]="outlookService.autoGrouping()" (change)="outlookService.autoGrouping.set($any($event.target).checked)">Agrupar automáticamente</label><small>Reglas locales · No cambia las categorías de Outlook · Revisión de Entrada cada 60 s con la vista activa</small></div>
+            <div class="category-filter-bar">
+              <button class="cat-pill"
+                      [class.active]="outlookService.activeCategory() === null"
+                      (click)="filterByCategory(null)">
+                Todas ({{ outlookService.folderMessages().length }})
+              </button>
+              <button class="cat-pill"
+                      [class.active]="outlookService.activeCategory() === 'unread'"
+                      (click)="filterByCategory('unread')">
+                <i class="bi bi-circle-fill text-primary" style="font-size:0.55rem;"></i> Sin leer ({{ outlookService.folderUnreadCount() }})
+              </button>
+              <button class="cat-pill" [class.active]="outlookService.activeCategory()==='risk'" (click)="filterByCategory('risk')">Con alertas ({{outlookService.securityAlerts().length}})</button>
+              <button class="cat-pill" [class.active]="outlookService.activeCategory()==='unclassified'" (click)="filterByCategory('unclassified')">Sin clasificar</button>
+              @for (cat of categoriesList(); track cat.id) {
+                <button class="cat-pill"
+                        [class.active]="outlookService.activeCategory() === cat.id"
+                        (click)="filterByCategory(cat.id)">
+                  <span class="cat-dot" [style.background-color]="cat.color"></span>
+                  {{ cat.label }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Master-Detail Split Grid -->
+          <div class="inbox-split">
+
+            <!-- Panel Izquierdo: Lista de Correos -->
+            <div class="inbox-list-pane" aria-label="Lista de correos">
+              <div class="list-heading"><span>MENSAJES CARGADOS</span><span>{{outlookService.displayedMessages().length}}</span></div>
+              @if (outlookService.operationMode() === 'real' && !outlookService.isAuthenticated()) {
+                <div class="empty-state p-4 text-center">
+                  <i class="bi bi-microsoft text-primary display-5 mb-3 d-block"></i>
+                  <h5 class="fw-bold">Modo Real Seleccionado</h5>
+                  <p class="text-muted small">Inicia sesión con tu cuenta de Outlook para cargar mensajes reales de Outlook.</p>
+                  <button class="btn btn-primary btn-sm rounded-pill px-4 fw-semibold shadow-sm" (click)="connectOutlook()">
+                    <i class="bi bi-microsoft me-1"></i> Conectar Outlook
+                  </button>
+                  <p class="small text-muted mt-3">
+                    O vuelve al <a href="#" class="fw-bold text-decoration-none" (click)="$event.preventDefault(); toggleOperationMode()">Modo Simulado</a> para interactuar de inmediato con datos demo.
+                  </p>
+                </div>
+              } @else if (outlookService.isLoading()) {
+                <div class="p-5 text-center text-muted">
+                  <span class="spinner-border text-primary mb-2"></span>
+                  <div class="small fw-semibold">Cargando mensajes de Outlook...</div>
+                </div>
+              } @else if (outlookService.displayedMessages().length === 0) {
+                <div class="empty-state p-5 text-center">
+                  <i class="bi bi-inbox text-muted display-6 mb-2 d-block opacity-50"></i>
+                  <h5>{{outlookService.searchQuery() || outlookService.activeCategory() ? 'Sin coincidencias' : 'No hay mensajes aquí'}}</h5>
+                  <p class="text-secondary">{{outlookService.searchQuery() || outlookService.activeCategory() ? 'Prueba otra búsqueda o quita los filtros para ver todos los mensajes cargados.' : 'Esta carpeta no tiene mensajes cargados. Puedes sincronizar para actualizarla.'}}</p>
+                  @if(outlookService.searchQuery() || outlookService.activeCategory()) {
+                  <button class="btn btn-outline-secondary btn-sm rounded-pill" (click)="filterByCategory(null); outlookService.clearSearch()">
+                    Limpiar filtros
+                  </button>
+                  }
+                </div>
+              } @else {
+                <div class="mail-items-container">
+                  @for (msg of outlookService.displayedMessages(); track msg.id) {
+                    <div class="mail-item"
+                         [class.active]="outlookService.selectedMessage()?.id === msg.id"
+                         [class.unread]="!msg.isRead"
+                         role="button" tabindex="0" [attr.aria-pressed]="outlookService.selectedMessage()?.id === msg.id" (keydown.enter)="selectMessage(msg)" (keydown.space)="$event.preventDefault(); selectMessage(msg)"
+                         (click)="selectMessage(msg)">
+                      <div class="mail-item-header">
+                        <span class="mail-sender">
+                          {{messageCorrespondent(msg)}}
+                        </span>
+                        <span class="mail-date">{{ msg.receivedDateTime | date:'shortDate' }}</span>
+                      </div>
+                      <div class="mail-subject">
+                        {{ msg.subject || '(Sin asunto)' }}
+                      </div>
+                      <div class="mail-preview">{{ msg.bodyPreview }}</div>
+                      <span class="insight-badge" [class.high]="outlookService.insightsFor(msg).level==='high'" [class.review]="outlookService.insightsFor(msg).level==='review'">{{outlookService.insightsFor(msg).label}}{{outlookService.insightsFor(msg).partial?' · Parcial':''}}</span>
+                      @if (outlookService.categoriesFor(msg).length > 0) {
+                        <div class="mail-tags">
+                          @for (cat of outlookService.categoriesFor(msg); track cat) {
+                            <span [class]="'cat-tag ' + getCategoryTagClass(cat)">
+                              {{ cat }}
+                            </span>
+                          }
+                        </div>
+                      }
+                      @if (!msg.isRead) {
+                        <span class="unread-indicator" title="Mensaje sin leer"></span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
+            <!-- Panel Derecho: Detalle del Mensaje -->
+            <div class="inbox-detail-pane">
+              @if (outlookService.selectedMessage(); as selected) {
+                <button class="btn btn-outline-secondary btn-sm mobile-reader-back" (click)="mobileDetailOpen.set(false)"><i class="bi bi-arrow-left"></i> Volver a los mensajes</button>
+                <div class="detail-container">
+                  <!-- Header del Detalle -->
+                  <div class="detail-header">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                      <h4 class="detail-title mb-0">{{ selected.subject || '(Sin asunto)' }}</h4>
+                      <div class="d-flex gap-1 flex-shrink-0">
+                        <!-- Botón Pedir al Agente responder -->
+                        <button class="btn btn-sm btn-primary rounded-pill px-3 d-flex align-items-center gap-1 shadow-sm fw-semibold"
+                                (click)="askAgentToReply(selected)"
+                                title="Pedir al Agente IA redactar una respuesta formal">
+                          <i class="bi bi-robot"></i>
+                          <span>Responder con IA</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="detail-meta-row">
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="sender-avatar">
+                          {{ (selected.from?.emailAddress?.name || 'U').charAt(0).toUpperCase() }}
+                        </div>
+                        <div>
+                          <div class="fw-bold text-dark">
+                            {{ selected.from?.emailAddress?.name || 'Desconocido' }}
+                          </div>
+                          <div class="small text-muted">&lt;{{ selected.from?.emailAddress?.address }}&gt;</div>
+                        </div>
+                      </div>
+                      <div class="text-secondary small fw-semibold">
+                        {{ selected.receivedDateTime | date:'medium' }}
+                      </div>
+                    </div>
+
+                    <!-- Barra de Acciones Rápidas del Correo -->
+                    <div class="detail-actions-bar mt-3 pt-2 border-top">
+                      <span class="small text-muted me-1 fw-semibold">Organizar:</span>
+
+                      <!-- Selector nativo: funciona sin JavaScript de Bootstrap. -->
+                      <label class="d-inline-flex align-items-center gap-2 mb-0 small fw-semibold">
+                        <i class="bi bi-tag" aria-hidden="true"></i>
+                        <span>Asignar categoría</span>
+                        <select #categoryPicker class="form-select form-select-sm rounded-pill"
+                                aria-label="Elegir categoría para el correo seleccionado"
+                                [disabled]="!!executingActionId() || !!authorizingActionId()"
+                                (change)="categoryPicker.value && askAgentToCategorize(selected, categoryPicker.value); categoryPicker.value = ''">
+                          <option value="">Elegir categoría…</option>
+                          @for (cat of categoriesList(); track cat.id) {
+                            <option [value]="cat.id">{{ cat.label }}</option>
+                          }
+                        </select>
+                      </label>
+
+                      <!-- Eliminar -->
+                      <button class="btn btn-outline-danger btn-sm rounded-pill fw-semibold"
+                              (click)="askAgentToDelete(selected)"
+                              title="Proponer eliminación a través del Agente IA">
+                        <i class="bi bi-trash3 me-1"></i> Mover a papelera
+                      </button>
+
+                      <!-- Categorías asignadas actuales -->
+                      @if (selected.categories && selected.categories.length > 0) {
+                        <div class="ms-auto d-flex gap-1 flex-wrap">
+                          @for (c of selected.categories; track c) {
+                            <span [class]="'cat-tag ' + getCategoryTagClass(c)">
+                              {{ c }}
+                            </span>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="message-operations d-flex flex-wrap gap-2 p-3 border-bottom">
+                    <button class="btn btn-sm btn-outline-primary" (click)="outlookService.startCompose(selected)">Responder</button>
+                    <button class="btn btn-sm btn-outline-secondary" (click)="proposeChange(selected,selected.isRead ? 'MARK_AS_UNREAD' : 'MARK_AS_READ',{})">{{selected.isRead ? 'Marcar no leído' : 'Marcar leído'}}</button>
+                    <button class="btn btn-sm btn-outline-warning" (click)="proposeChange(selected,'SET_FLAG',{flagged:selected.flag?.flagStatus !== 'flagged'})">{{selected.flag?.flagStatus === 'flagged' ? 'Quitar destacado' : 'Destacar'}}</button>
+                    <button class="btn btn-sm btn-outline-secondary" (click)="proposeChange(selected,'MOVE_EMAIL',{folder:'archive'})">Archivar</button>
+                    <button class="btn btn-sm btn-outline-secondary" (click)="proposeChange(selected,'MOVE_EMAIL',{folder:'inbox'})">Restaurar a entrada</button>
+                    @if(outlookService.operationMode() === 'real' && outlookService.folders().length) {
+                      <label class="small d-flex gap-1 align-items-center">Mover a
+                        <select #destination class="form-select form-select-sm" (change)="destination.value && proposeChange(selected,'MOVE_EMAIL',{folder:destination.value}); destination.value=''">
+                          <option value="">Elegir carpeta…</option>
+                          @for(folder of outlookService.folders();track folder.id) {<option [value]="folder.id">{{folder.displayName}}</option>}
+                        </select>
+                      </label>
+                    }
+                  </div>
+                  @if(selected.toRecipients?.length || selected.ccRecipients?.length) {
+                    <div class="recipient-line small px-3 pt-2">Para: @for(recipient of selected.toRecipients;track $index) {<span>{{recipient.emailAddress.address}}; </span>}
+                    · CC: @for(recipient of selected.ccRecipients;track $index) {<span>{{recipient.emailAddress.address}}; </span>}</div>
+                  }
+                  @if(selected.attachments?.length) {
+                    <div class="attachment-list px-3 pt-2"><strong class="small">Adjuntos</strong>
+                    @for(file of selected.attachments;track $index) {
+                      <button class="btn btn-sm btn-outline-secondary m-1" (click)="downloadAttachment(file)" [disabled]="!file.contentBytes">{{file.name}} ({{file.size}} bytes)</button>
+                    }</div>
+                  }
+                  <!-- Cuerpo del Mensaje -->
+                  <app-mail-safety [report]="outlookService.selectedInsights()" />
+                  <div class="detail-body">
+                    @if (outlookService.isLoadingDetail()) {
+                      <div class="p-4 text-center text-muted">
+                        <span class="spinner-border spinner-border-sm text-primary me-2"></span>
+                        Cargando contenido completo desde Outlook...
+                      </div>
+                    } @else if (selected.body?.contentType === 'html') {
+                      <p class="small text-secondary">Lectura segura · Imágenes externas y contenido activo deshabilitados.</p>
+                      <pre class="body-text">{{ mailPlainText(selected.body?.content || '') }}</pre>
+                    } @else {
+                      <pre class="body-text">{{ selected.body?.content || selected.bodyPreview }}</pre>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="empty-state p-5 text-center text-muted m-auto">
+                  <i class="bi bi-envelope-open text-muted display-4 mb-3 d-block opacity-50"></i>
+                  <h5 class="fw-bold text-secondary">Ningún correo seleccionado</h5>
+                  <p class="small text-muted">Elige un correo de la lista de la izquierda para ver su contenido completo.</p>
+                </div>
+              }
+            </div>
+
+          </div>
+          }
+        </div>
+      }
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 2: CHAT DEL AGENTE IA (EmailAgent AI)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'agente') {
+        <div class="agent-chat-shell">
+          <div class="section-header">
+            <h2 class="section-title">
+              <i class="bi bi-robot title-icon"></i>
+              Asistente de correo
+            </h2>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge" [class.badge-mode-real]="outlookService.operationMode() === 'real'" [class.badge-mode-sim]="outlookService.operationMode() === 'simulated'">
+                {{ outlookService.operationMode() === 'real' ? 'Modo Real: Graph API' : 'Modo Simulado (Demo)' }}
+              </span>
+              <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-semibold">
+                <i class="bi bi-shield-check me-1"></i> Aprobación humana
+              </span>
+            </div>
+          </div>
+
+          <div class="context-strip">
+            <i class="bi bi-envelope" aria-hidden="true"></i>
+            @if(outlookService.selectedMessage(); as context) {
+              <span>Contexto:</span><span class="context-subject" [title]="context.subject">{{context.subject || '(Sin asunto)'}}</span>
+              <button class="btn btn-outline-secondary btn-sm" (click)="outlookService.selectedMessage.set(null)">Quitar contexto</button>
+            } @else {<span>Sin correo seleccionado. Puedes hacer una consulta general o seleccionar un mensaje.</span>}
+          </div>
+          <div class="chat-viewport">
+            <div class="chat-messages-list" #chatScroll role="log" aria-label="Conversación con el asistente" aria-live="polite">
+              @for (msg of chatMessages(); track msg.id) {
+                <div class="chat-bubble-row" [class.user-row]="msg.role === 'user'" [class.assistant-row]="msg.role === 'assistant'">
+                  @if (msg.role === 'assistant') {
+                    <div class="agent-avatar">
+                      <i class="bi bi-robot"></i>
+                    </div>
+                  }
+                  <div class="chat-bubble" [class.user-bubble]="msg.role === 'user'" [class.assistant-bubble]="msg.role === 'assistant'">
+                    <div class="bubble-content" [innerHTML]="formatChat(msg.content)"></div>
+                    <div class="bubble-time">{{ msg.timestamp | date:'shortTime' }}</div>
+
+                    <!-- Si el mensaje contiene propuestas de acción generadas -->
+                    @if (msg.proposed_actions && msg.proposed_actions.length > 0) {
+                      <div class="proposed-actions-card">
+                        <div class="card-header-action">
+                          <i class="bi bi-shield-exclamation text-warning fs-6"></i>
+                          <span>Propuesta para revisar</span>
+                        </div>
+                        @for (action of msg.proposed_actions; track action.id) {
+                          <div class="p-3 border-top bg-light">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                              <span class="badge bg-dark">{{actionName(action.action_type)}}</span>
+                              <span class="badge border bg-white text-dark">{{action.mode === 'real' ? 'Outlook real' : 'Simulador'}}</span>
+                            </div>
+                            <div class="small fw-bold text-dark mb-2">{{ action.description }}</div>
+                            <div class="small mb-2">Estado: {{statusName(actionService.get(action.id)?.status)}} · versión {{actionService.get(action.id)?.payloadVersion}}</div>
+                            @if(action.mode === 'real' && !outlookService.hasActionPermission(action) && actionService.canApprove(action.id)) {<button class="btn btn-sm btn-outline-primary mb-2" (click)="authorizeAction(action)" [disabled]="!!authorizingActionId() || !!executingActionId()">Autorizar con Microsoft</button>}
+                            <div class="d-flex gap-2">
+                              <button class="btn btn-success btn-sm rounded-pill px-3 fw-semibold shadow-sm"
+                                      (click)="approveAction(action)"
+                                      [disabled]="!canApprove(action)">
+                                @if (executingActionId() === action.id) {
+                                  <span class="spinner-border spinner-border-sm me-1"></span> Ejecutando...
+                                } @else {
+                                  <i class="bi bi-check-lg me-1"></i> Aprobar y Ejecutar
+                                }
+                              </button>
+                              <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-semibold"
+                                      (click)="rejectAction(action.id)" [disabled]="!actionService.canApprove(action.id)">
+                                <i class="bi bi-x-lg me-1"></i> Rechazar
+                              </button>
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
+              <!-- Indicador de pensamiento del agente -->
+              @if (isAgentThinking()) {
+                <div class="chat-bubble-row assistant-row">
+                  <div class="agent-avatar"><i class="bi bi-robot"></i></div>
+                  <div class="chat-bubble assistant-bubble d-flex align-items-center gap-2">
+                    <span class="spinner-grow spinner-grow-sm text-primary"></span>
+                    <span class="small fw-semibold text-secondary">Procesando con {{prefs.llmEnabled() ? 'el LLM configurado' : 'reglas locales'}}…</span>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <!-- Chips de Comandos Sugeridos -->
+            <div class="suggested-prompts-bar">
+              <span class="badge bg-secondary">Motor: {{agentEngine()}}</span>
+              <span class="small text-muted me-1 fw-bold"><i class="bi bi-lightbulb-fill text-warning"></i> Sugerencias:</span>
+              @for (prompt of suggestedPrompts(); track prompt) {
+                <button class="prompt-chip" (click)="sendSuggestedPrompt(prompt)">
+                  {{ prompt }}
+                </button>
+              }
+            </div>
+
+            <!-- Input Box del Chat -->
+            <div class="chat-input-bar">
+              <div class="input-group shadow-sm">
+                <textarea class="form-control"
+                          rows="2" maxlength="4000"
+                          aria-label="Mensaje para el asistente" placeholder="Pide un resumen, prepara una respuesta o consulta tus mensajes…"
+                          [(ngModel)]="agentInput"
+                          (keydown.enter)="onChatEnter($event)"
+                          [disabled]="isAgentThinking()"></textarea>
+                <button class="btn btn-primary px-4 d-flex align-items-center justify-content-center"
+                        (click)="sendMessage()"
+                        [disabled]="isAgentThinking() || !agentInput.trim()"
+                        title="Enviar mensaje al agente">
+                  <i class="bi bi-send-fill fs-5"></i>
+                </button>
+              </div>
+              <p class="chat-input-hint">Enter para enviar · Shift + Enter para una nueva línea. Revisa las propuestas antes de aprobarlas.</p>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 3: ACCIONES PENDIENTES (Human-in-the-Loop)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'acciones') {
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="bi bi-shield-check title-icon text-warning"></i>
+            Propuestas y acciones
+            @if (actionService.pendingCount() > 0) {
+              <span class="badge bg-warning text-dark ms-2">{{ actionService.pendingCount() }}</span>
+            }
+          </h2>
+          <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-3 py-2 rounded-pill fw-semibold">
+            <i class="bi bi-shield-lock me-1"></i> Tú decides qué se ejecuta
+          </span>
+        </div>
+
+        <div class="section-body">
+          <div class="alert alert-warning border-0 rounded-3 shadow-sm mb-4 d-flex gap-3">
+            <i class="bi bi-shield-exclamation fs-3 text-warning flex-shrink-0 mt-1"></i>
+            <div>
+              <strong class="text-dark">Revisa antes de confirmar</strong>
+              <p class="mb-0 small text-secondary">
+                El asistente prepara propuestas. <strong>No se envían ni modifican correos</strong>
+                sin tu confirmación explícita. En modo real, los cambios se aplican a tu cuenta de Outlook. Si una operación falla, el resultado queda registrado en el historial.
+              </p>
+            </div>
+          </div>
+
+          @if (actionService.pendingActions().length === 0) {
+            <div class="content-card p-5 text-center">
+              <i class="bi bi-check-circle-fill text-success display-4 mb-3 d-block"></i>
+              <h5 class="fw-bold text-dark">No hay acciones pendientes</h5>
+              <p class="text-secondary small col-md-6 mx-auto">
+                Todas las acciones propuestas han sido procesadas. Pídele al Agente IA en el chat que redacte correos,
+                clasifique mensajes o realice tareas para generar nuevas propuestas.
+              </p>
+              <button class="btn btn-primary btn-sm rounded-pill px-4 mt-2 fw-semibold shadow-sm" (click)="navigate('agente')">
+                <i class="bi bi-robot me-1"></i> Ir al Chat del Agente
+              </button>
+            </div>
+          } @else {
+            <div class="row g-3">
+              @for (action of actionService.pendingActions(); track action.id) {
+                <div class="col-lg-6">
+                  <div class="content-card p-4 h-100 d-flex flex-column" [class.border-danger]="action.status === 'FAILED'">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                      <span class="badge" [class.bg-primary]="action.action_type === 'SEND_EMAIL'"
+                                          [class.bg-danger]="action.action_type === 'DELETE_EMAIL'"
+                                          [class.bg-success]="action.action_type === 'ADD_CATEGORY'"
+                                          [class.bg-secondary]="action.action_type === 'MARK_AS_READ' || action.action_type === 'MARK_AS_UNREAD'">
+                        {{actionName(action.action_type)}}
+                      </span>
+                      <span class="badge" [class.badge-mode-real]="action.mode === 'real'"
+                                         [class.badge-mode-sim]="action.mode === 'simulated'">
+                        {{action.mode === 'real' ? 'Outlook real' : 'Simulador'}}
+                      </span>
+                    </div>
+
+                    <h6 class="fw-bold text-dark mb-2">{{ action.description }}</h6>
+                    <p class="small mb-2">Estado: {{statusName(action.status)}} · versión {{action.payloadVersion}} · cuenta {{action.accountLabel || 'Microsoft de origen'}}</p>
+                    @if(action.accountKey !== outlookService.accountKey() || action.mode !== outlookService.operationMode()) {
+                      <div class="alert alert-warning small">Propuesta bloqueada: pertenece a otra cuenta, modo o sesión del simulador.</div>
+                    }
+
+                    <!-- Parámetros específicos -->
+                    <div class="bg-light p-3 rounded small text-secondary mb-3 flex-grow-1 border">
+                      @if (action.action_type === 'SEND_EMAIL') {
+                        <div><strong class="text-dark">Para:</strong> {{ action.parameters['to'] }}</div>
+                        <div><strong class="text-dark">Asunto:</strong> {{ action.parameters['subject'] }}</div>
+                        <div>CC: {{action.parameters['cc'] || '—'}} · CCO: {{action.parameters['bcc'] || '—'}}</div>
+                        <pre class="proposal-body mt-2">{{action.parameters['body']}}</pre>
+                        @for(file of action.parameters['attachments'] || [];track $index) {<div>Adjunto: {{file.name}} · {{file.size}} bytes</div>}
+
+                      } @else if (action.action_type === 'ADD_CATEGORY') {
+                        <div><strong class="text-dark">Categoría:</strong> <span class="badge bg-primary">{{ action.parameters['category'] }}</span></div>
+                        <div><strong class="text-dark">Mensaje:</strong> {{ action.parameters['subject'] }}</div>
+                      } @else if (action.action_type === 'DELETE_EMAIL') {
+                        <div><strong class="text-dark">Mensaje a mover:</strong> {{ action.parameters['subject'] }}</div>
+                        <div class="text-danger small mt-1 fw-bold"><i class="bi bi-exclamation-triangle"></i> Movimiento a papelera; se puede restaurar</div>
+                      } @else {
+                        <div><strong class="text-dark">Mensaje:</strong> {{ action.parameters['subject'] }}</div>
+                        @if(action.action_type === 'MOVE_EMAIL') {<div>Destino: {{action.parameters['folder']}}</div>}
+                        @if(action.action_type === 'SET_FLAG') {<div>Destacado: {{action.parameters['flagged'] ? 'sí' : 'no'}}</div>}
+                      }
+                    </div>
+
+                    <!-- Mensaje de error si falló en Graph -->
+                    @if (action.status === 'FAILED' || action.status === 'UNCERTAIN') {
+                      <div class="alert alert-danger p-2 small mb-3">
+                        <i class="bi bi-x-circle me-1"></i> {{ action.errorMessage }}
+                      </div>
+                    }
+
+                    <button class="btn btn-sm btn-outline-primary mb-2" (click)="editAction(action)" [disabled]="!actionService.canApprove(action.id) || !!executingActionId() || !!authorizingActionId()">Editar / revisar propuesta</button>
+
+                    @if(action.mode === 'real' && actionService.canApprove(action.id)) {
+                      <button class="btn btn-outline-primary btn-sm mb-2" (click)="authorizeAction(action)"
+                        [disabled]="!!authorizingActionId() || !!executingActionId() || action.accountKey !== outlookService.accountKey() || outlookService.operationMode() !== 'real'">
+                        {{authorizingActionId() === action.id ? 'Esperando a Microsoft…' : outlookService.hasActionPermission(action) ? 'Renovar autorización Microsoft' : action.action_type === 'SEND_EMAIL' ? 'Autorizar envío con Microsoft' : 'Autorizar cambios con Microsoft'}}
+                      </button>
+                    }
+                    <!-- Botones de Acción -->
+                    <div class="d-flex gap-2 pt-2 border-top mt-auto">
+                      <button class="btn btn-success btn-sm rounded-pill flex-grow-1 fw-semibold shadow-sm"
+                              (click)="approveAction(action)"
+                              [disabled]="!canApprove(action)">
+                        @if (executingActionId() === action.id) {
+                          <span class="spinner-border spinner-border-sm me-1"></span> Ejecutando...
+                        } @else {
+                          <i class="bi bi-check-circle me-1"></i> Aprobar y Ejecutar
+                        }
+                      </button>
+                      <button class="btn btn-outline-secondary btn-sm rounded-pill fw-semibold"
+                              (click)="rejectAction(action.id)" [disabled]="!actionService.canApprove(action.id)">
+                        <i class="bi bi-x-circle me-1"></i> Rechazar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 4: AUDITORÍA (Audit Log)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'auditoria') {
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="bi bi-journal-text title-icon"></i>
+            Historial de actividad
+          </h2>
+          <button class="btn btn-outline-secondary btn-sm rounded-pill fw-semibold" (click)="exportAudit()">
+            <i class="bi bi-download me-1"></i> Exportar historial
+          </button>
+        </div>
+
+        <div class="section-body">
+          <div class="activity-tools">
+            <input class="form-control" aria-label="Buscar en el historial" placeholder="Buscar una acción o un resultado…" [ngModel]="auditQuery()" (ngModelChange)="auditQuery.set($event)">
+            <select class="form-select" aria-label="Filtrar historial por evento" [ngModel]="auditStatus()" (ngModelChange)="auditStatus.set($event)">
+              <option value="">Todos los eventos</option><option value="ACCEPTED">Envíos aceptados, entrega sin confirmar</option><option value="APPROVED">Acciones completadas</option><option value="REJECTED">Rechazadas</option><option value="EDITED">Editadas</option><option value="EXECUTING">Inicio de ejecución</option><option value="FAILED">Fallidas</option><option value="UNCERTAIN">Inciertas</option>
+            </select><span class="small text-secondary">{{filteredAudit().length}} eventos · historial de esta sesión</span>
+          </div>
+          <p class="queue-note mb-3">Cada acción puede registrar varios eventos: revisión, inicio y resultado. No representan envíos duplicados.</p>
+          <div class="content-card">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-custom-header text-uppercase">
+                  <tr>
+                    <th style="width:170px;">Fecha / Hora</th>
+                    <th style="width:150px;">Acción</th>
+                    <th>Descripción</th>
+                    <th style="width:150px;">Proveedor / Modo</th>
+                    <th style="width:140px;">Resultado</th>
+                    <th>Detalles</th>
+                  </tr>
+                </thead>
+                <tbody class="small">
+                  @for (entry of filteredAudit(); track entry.id) {
+                    <tr>
+                      <td class="text-secondary fw-semibold">{{ entry.timestamp | date:'short' }}</td>
+                      <td>
+                        <span class="badge bg-secondary">{{actionName(entry.action_type)}}</span>
+                      </td>
+                      <td class="fw-bold text-dark">{{ entry.description }}</td>
+                      <td>
+                        <span class="badge" [class.badge-mode-real]="entry.mode === 'real'"
+                                           [class.badge-mode-sim]="entry.mode === 'simulated'">
+                          {{entry.mode === 'real' ? 'Outlook real' : 'Simulador'}}
+                        </span>
+                      </td>
+                      <td>
+                        @if (entry.status === 'ACCEPTED') {
+                          <span class="badge bg-warning-subtle"><i class="bi bi-clock me-1"></i>Aceptado; entrega sin confirmar</span>
+                        } @else if (entry.status === 'APPROVED') {
+                          <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 fw-bold">
+                            <i class="bi bi-check-circle me-1"></i>Acción completada
+                          </span>
+                        } @else if (entry.status === 'REJECTED') {
+                          <span class="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-2 fw-bold">
+                            <i class="bi bi-x-circle me-1"></i>Rechazada
+                          </span>
+                        } @else {
+                          <span class="badge bg-secondary">{{entry.status === 'UNCERTAIN' ? 'Incierta' : entry.status === 'EXECUTING' ? 'Inicio de ejecución' : entry.status === 'EDITED' ? 'Editada' : 'Fallida'}}</span>
+                        }
+                      </td>
+                      <td class="text-secondary">{{ entry.details || '—' }}<div class="small">Versión {{entry.payloadVersion}}</div></td>
+                    </tr>
+                  }
+                  @if (filteredAudit().length === 0) {
+                    <tr>
+                      <td colspan="6" class="text-center py-4 text-muted fw-semibold">
+                        No hay eventos que coincidan con esta vista.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 5: RESUMEN GENERAL (Overview)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'inicio') {
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="bi bi-speedometer2 title-icon"></i>
+            Resumen de tu espacio
+          </h2>
+          <button class="btn btn-outline-primary btn-sm rounded-pill fw-semibold" (click)="toggleOperationMode()">
+            Alternar Modo: <strong>{{ outlookService.operationMode() === 'real' ? 'Real' : 'Simulado' }}</strong>
+          </button>
+        </div>
+
+        <div class="section-body">
+          <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+              <div class="stat-card">
+                <div class="stat-icon stat-icon-blue"><i class="bi bi-inbox-fill"></i></div>
+                <div>
+                  <div class="stat-label">Mensajes en la vista</div>
+                  <div class="stat-value">{{ outlookService.displayedMessages().length }}</div>
+                  <div class="stat-desc">cargados y filtrados</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+              <div class="stat-card">
+                <div class="stat-icon stat-icon-amber"><i class="bi bi-envelope-open-fill"></i></div>
+                <div>
+                  <div class="stat-label">Sin Leer</div>
+                  <div class="stat-value">{{ outlookService.folderUnreadCount() }}</div>
+                  <div class="stat-desc">en la ubicación cargada</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+              <div class="stat-card">
+                <div class="stat-icon stat-icon-red"><i class="bi bi-shield-exclamation"></i></div>
+                <div>
+                  <div class="stat-label">Acciones Pendientes</div>
+                  <div class="stat-value">{{ actionService.pendingCount() }}</div>
+                  <div class="stat-desc">esperando aprobación</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+              <div class="stat-card">
+                <div class="stat-icon stat-icon-emerald"><i class="bi bi-hdd-network-fill"></i></div>
+                <div>
+                  <div class="stat-label">Servicio del agente</div>
+                  <div class="stat-value" style="font-size:1.15rem; font-weight:800;">
+                    @if (isBackendLoading()) { Verificando... }
+                    @else if (isBackendConnected()) { Conectado }
+                    @else { Desconectado }
+                  </div>
+                  <div class="stat-desc">estado de conexión del servidor</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Accesos rápidos -->
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="content-card p-4">
+                <h6 class="fw-bold text-dark mb-2"><i class="bi bi-robot text-primary me-2"></i>Agente Inteligente</h6>
+                <p class="text-secondary small">Pídele al agente que analice y resuma tus correos o redacte respuestas con un solo clic.</p>
+                <button class="btn btn-primary btn-sm rounded-pill px-4 fw-semibold shadow-sm" (click)="navigate('agente')">
+                  Abrir Chat del Agente
+                </button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="content-card p-4">
+                <h6 class="fw-bold text-dark mb-2"><i class="bi bi-inbox text-primary me-2"></i>Bandeja con Filtros</h6>
+                <p class="text-secondary small">Explora tus correos organizados por categorías de Outlook y búsqueda por palabras clave.</p>
+                <button class="btn btn-outline-primary btn-sm rounded-pill px-4 fw-semibold" (click)="navigate('bandeja')">
+                  Ver Bandeja
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- ═══════════════════════════════════════════════
+           SECCIÓN 6: CONFIGURACIÓN (Settings & Graph Permissions)
+           ═══════════════════════════════════════════════ -->
+      @if (nav.activeSection() === 'configuracion') {
+        <div class="section-header"><h2 class="section-title">Configuración</h2></div>
+        <div class="section-body"><app-preferences />
+          <div class="content-card p-4"><h3 class="h5">Acerca de NexoMail</h3><p class="brand-authors">Proyecto de tesis · Marlon Aguiño · Jonathan Pérez</p>
+            <p>Trabaja con tu cuenta de Outlook. Las propuestas se revisan antes de enviar o mover mensajes a la papelera.</p>
+            <p>Los correos simulados, borradores, propuestas y auditoría se conservan en memoria hasta recargar. Solo las preferencias visuales se guardan en este navegador.</p>
+            <button class="btn btn-outline-primary" (click)="checkBackendHealth()">Comprobar conexión del agente</button>
+          </div>
+        </div>
+      }
+
+    </main>
+  </div><!-- /.app-body -->
+</div><!-- /.app-shell -->

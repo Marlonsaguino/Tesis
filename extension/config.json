@@ -1,0 +1,7 @@
+{
+  "googleClientId": "",
+  "microsoftClientId": "8e0d59dc-8a0f-4239-bab3-c82a0c145ac4",
+  "microsoftTenant": "common",
+  "apiBaseUrl": "http://127.0.0.1:8000",
+  "pairingToken": ""
+}
