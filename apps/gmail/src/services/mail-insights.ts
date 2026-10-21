@@ -10,6 +10,7 @@ export interface MailInput {
 export interface LinkFinding { domain: string; reasons: string[]; }
 export interface MailInsights {
   categories: MailCategory[]; classificationReasons: string[];
+  specificLabels: string[];
   level: 'high'|'review'|'none'; label: string; reasons: string[];
   links: LinkFinding[]; partial: boolean; hasAttachments: boolean;
 }
@@ -37,21 +38,27 @@ export function analyzeMail(input:MailInput):MailInsights {
   const parsed=input.html?inspectHtml(input.html):null;
   const text=(input.text+'\n'+(parsed?.text || '')).slice(0,MAX_CONTENT);
   const hay=clean(input.subject+'\n'+text), subject=clean(input.subject);
-  const categories:MailCategory[]=[], classificationReasons:string[]=[];
+  const categories:MailCategory[]=[], classificationReasons:string[]=[], specificLabels:string[]=[];
   const addCategory=(category:MailCategory,reason:string)=>{if(!categories.includes(category)){categories.push(category);classificationReasons.push(reason);}};
+  const addSpecificLabel=(label:string)=>{if(!specificLabels.includes(label))specificLabels.push(label);};
   for(const label of input.labels || []){
     const normalized=clean(label);
     const aliases:Record<string,MailCategory>={trabajo:'Trabajo',personal:'Personal',importante:'Importante',urgente:'Importante',finanzas:'Finanzas',boletines:'Boletines',suscripciones:'Boletines',category_promotions:'Boletines',category_social:'Boletines',category_personal:'Personal',important:'Importante'};
     if(aliases[normalized])addCategory(aliases[normalized],'Categoría existente: '+label);
   }
-  const rules:[MailCategory,RegExp,string][]=[
-    ['Finanzas',/\b(factura|invoice|recibo|comprobante|transferencia|payment|pago|estado de cuenta|saldo|cobro|presupuesto)\b/,'Referencias a pagos, facturas o movimientos financieros.'],
-    ['Boletines',/\b(newsletter|boletin|unsubscribe|cancelar suscripcion|darse de baja|promocion|descuento|oferta|digest)\b/,'Contenido de boletín, promoción o suscripción.'],
-    ['Trabajo',/\b(proyecto|tesis|reunion|meeting|entrega|informe|asignatura|matricula|universidad|clase|docente|estudiante|trabajo|equipo|sustentacion|entrevista|contrato)\b/,'Referencias laborales o académicas.'],
-    ['Importante',/\b(urgente|urgent|vence|vencimiento|fecha limite|deadline|accion requerida|action required|seguridad|security alert)\b/,'Referencias a prioridad, plazos o seguridad.'],
-    ['Personal',/\b(cumpleanos|familia|amigo|amiga|abrazo|saludos de|nos vemos|vacaciones)\b/,'Señales de conversación personal.']
+  const rules:[MailCategory,RegExp,string,string][]=[
+    ['Finanzas',/\b(factura|invoice|recibo|comprobante)\b/,'Finanzas', 'El asunto o contenido menciona una factura, un recibo o un comprobante.'],
+    ['Finanzas',/\b(transferencia|payment|pago|cobro)\b/,'Finanzas', 'El asunto o contenido menciona un pago, un cobro o una transferencia.'],
+    ['Finanzas',/\b(estado de cuenta|saldo|presupuesto)\b/,'Finanzas', 'El asunto o contenido menciona un estado de cuenta, un saldo o un presupuesto.'],
+    ['Boletines',/\b(newsletter|boletin|unsubscribe|cancelar suscripcion|darse de baja|digest)\b/,'Boletines', 'El mensaje presenta características de boletín informativo o suscripción.'],
+    ['Boletines',/\b(promocion|descuento|oferta)\b/,'Promociones y ofertas', 'El asunto o contenido anuncia una promoción, un descuento o una oferta.'],
+    ['Trabajo',/\b(asignatura|matricula|universidad|clase|docente|estudiante|tesis|sustentacion)\b/,'Comunicaciones académicas', 'El asunto o contenido incluye referencias académicas específicas.'],
+    ['Trabajo',/\b(proyecto|reunion|meeting|entrega|informe|trabajo|equipo|entrevista|contrato)\b/,'Comunicaciones laborales y de proyectos', 'El asunto o contenido menciona una actividad laboral, un proyecto o una reunión.'],
+    ['Importante',/\b(urgente|urgent|vence|vencimiento|fecha limite|deadline|accion requerida|action required)\b/,'Plazos y acciones requeridas', 'El asunto o contenido señala un plazo, un vencimiento o una acción requerida.'],
+    ['Importante',/\b(seguridad|security alert)\b/,'Avisos de seguridad', 'El asunto o contenido incluye referencias explícitas a seguridad.'],
+    ['Personal',/\b(cumpleanos|familia|amigo|amiga|abrazo|saludos de|nos vemos|vacaciones)\b/,'Correspondencia personal', 'El asunto o contenido contiene expresiones asociadas a una comunicación personal.']
   ];
-  for(const [category,re,reason] of rules)if(re.test(hay))addCategory(category,reason);
+  for(const [category,re,specificLabel,reason] of rules)if(re.test(hay)){addCategory(category,reason);addSpecificLabel(specificLabel);}
   // No invented personal/work label when evidence is insufficient.
   const reasons:string[]=[], links:LinkFinding[]=[];let score=0;
   const warn=(reason:string,weight:number)=>{if(!reasons.includes(reason)){reasons.push(reason);score+=weight;}};
@@ -114,5 +121,5 @@ export function analyzeMail(input:MailInput):MailInsights {
   }
   const level=score>=4?'high':score>0?'review':'none';
   const partial=!!input.partial || !!parsed?.truncated || input.text.length>MAX_CONTENT || candidates.length>MAX_LINKS;
-  return {categories,classificationReasons,level,label:level==='high'?'Posible phishing · Riesgo alto':level==='review'?'Requiere precaución':links.length?'Enlaces sin verificar':'Sin indicios detectados',reasons,links,partial,hasAttachments:!!input.hasAttachments || !!input.filenames?.length};
+  return {categories,classificationReasons,specificLabels,level,label:level==='high'?'Posible phishing · Riesgo alto':level==='review'?'Requiere precaución':links.length?'Enlaces sin verificar':'Sin indicios detectados',reasons,links,partial,hasAttachments:!!input.hasAttachments || !!input.filenames?.length};
 }

@@ -349,6 +349,11 @@
                               {{ cat }}
                             </span>
                           }
+                          @if (outlookService.autoGrouping()) {
+                            @for (label of outlookService.insightsFor(msg).specificLabels; track label) {
+                              <span class="cat-tag">{{ label }}</span>
+                            }
+                          }
                         </div>
                       }
                       @if (!msg.isRead) {

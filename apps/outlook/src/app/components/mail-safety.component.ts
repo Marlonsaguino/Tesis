@@ -12,6 +12,7 @@ import {MailInsights} from '../services/mail-insights';
         @if(r.hasAttachments){<p>Contiene adjuntos. Solo se revisan los nombres disponibles; su contenido no ha sido analizado.</p>}
         @if(r.links.length){<ul>@for(link of r.links;track $index){<li><code>{{link.domain}}</code>{{link.reasons.length?'':' · Destino sin verificar'}}</li>}</ul>}
         <p>Categorías automáticas: {{r.categories.join(', ') || 'Sin clasificar'}}.</p>
+        @if(r.specificLabels.length){<p>Descriptores automáticos específicos: {{r.specificLabels.join('; ')}}.</p>}
         @for(reason of r.classificationReasons;track reason){<p>{{reason}}</p>}
       </details>
     </section>

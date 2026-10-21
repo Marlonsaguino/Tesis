@@ -11,6 +11,7 @@ export function MailSafety({report}:{report:MailInsights}) {
       {report.hasAttachments && <p>Contiene adjuntos. Solo se revisan los nombres disponibles; su contenido no ha sido analizado.</p>}
       {report.links.length>0 && <ul>{report.links.map((link,index)=><li key={index}><code>{link.domain}</code>{link.reasons.length===0?' · Destino sin verificar':''}</li>)}</ul>}
       <p>Categorías automáticas: {report.categories.join(', ') || 'Sin clasificar'}.</p>
+      {report.specificLabels.length>0 && <p>Descriptores automáticos específicos: {report.specificLabels.join('; ')}.</p>}
       {report.classificationReasons.map(reason=><p key={reason}>{reason}</p>)}
     </details>
   </section>;
