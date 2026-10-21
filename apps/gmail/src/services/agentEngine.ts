@@ -43,6 +43,10 @@ export class AgentEngine {
     this.conversationHistory = [];
   }
 
+  public restoreTextHistory(messages:{role:'user'|'assistant';content:string}[]):void {
+    this.conversationHistory=messages.slice(-AgentEngine.MAX_HISTORY_MESSAGES).map(message=>({role:message.role,content:message.content}));
+  }
+
   /** Trim history to stay within the max limit, preserving the most recent messages */
   private trimHistory(): void {
     if (this.conversationHistory.length > AgentEngine.MAX_HISTORY_MESSAGES) {

@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Header } from './components/Header';
+import { WorkspaceStorage,boundedChat } from './services/workspace-storage';
+import type { StoredDraft } from './services/workspace-storage';
+import type { Message as ChatViewMessage } from './components/AgentChat';
 import { AgentChat } from './components/AgentChat';
 import { PendingActionsList } from './components/PendingActionsList';
 import { EmailInbox } from './components/EmailInbox';
@@ -16,6 +19,13 @@ import './mail-insights.css';
 import { WorkspacePages } from './components/WorkspacePages';
 
 export function App() {
+  const database=useRef<WorkspaceStorage|null>(null);
+  const [storageStatus,setStorageStatus]=useState('PostgreSQL · Conecta tu cuenta para recuperar los datos');
+  const [storageReady,setStorageReady]=useState(false);
+  const [storageLoading,setStorageLoading]=useState(false);
+  const [restoredChat,setRestoredChat]=useState<ChatViewMessage[]|null>(null);
+  const [savedDrafts,setSavedDrafts]=useState<StoredDraft[]>([]);
+  const [autoGrouping,setAutoGrouping]=useState(true);
   const executingActions=useRef(new Set<string>());
   const attemptedActions=useRef(new Set<string>());
   const [rawEmails, setEmails] = useState<Email[]>([]);
@@ -26,6 +36,22 @@ export function App() {
   const [isGmailConnected, setIsGmailConnected] = useState<boolean>(realGmailProvider.isConnected());
   const [gmailError, setGmailError] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const authorizationPending=useRef(false);
+  const [isAuthorizing,setIsAuthorizing]=useState(false);
+  async function authorizeGmail(){
+    if(authorizationPending.current)return;
+    authorizationPending.current=true;setIsAuthorizing(true);setGmailError(null);
+    try{
+      await window.emailAgentHost.ready;
+      const clientId=window.emailAgentHost.config.googleClientId?.trim();
+      if(!clientId){setGmailError('Falta configurar Google en las opciones de la extensión.');await window.emailAgentHost.openOptions();return;}
+      const auth=await window.emailAgentHost.googleLogin(clientId);
+      realGmailProvider.saveConfig({...auth,clientSecret:'',redirectUri:''});
+      setIsAuthModalOpen(false);setPendingActions([]);agentEngine.clearHistory();
+      await refreshEmails();
+    }catch(error){setGmailError(error instanceof Error?error.message:'Google no completó la autorización.');}
+    finally{authorizationPending.current=false;setIsAuthorizing(false);}
+  }
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([
     {
@@ -125,6 +151,45 @@ export function App() {
     return()=>window.clearInterval(timer);
   },[isProcessing,pendingActions.length,isAuthModalOpen]);
 
+  useEffect(()=>{
+    database.current?.close();database.current=null;setStorageReady(false);setStorageLoading(false);
+    if(!isGmailConnected){setRestoredChat([]);setSavedDrafts([]);setAuditLogs([]);agentEngine.clearHistory();setStorageStatus('PostgreSQL · Conecta tu cuenta para recuperar los datos');return;}
+    setStorageLoading(true);
+    const key=realGmailProvider.getSessionKey();
+    const store=new WorkspaceStorage('gmail',window.emailAgentHost.config,async()=>{
+      if(key!==realGmailProvider.getSessionKey())throw new Error('La cuenta cambió.');
+      return realGmailProvider.storageAccessToken();
+    },setStorageStatus);
+    database.current=store;
+    let active=true;
+    void store.load().then(data=>{
+      if(!active || key!==realGmailProvider.getSessionKey())return;
+      setRestoredChat(data.sections.chat.data.map(message=>({id:message.id,sender:message.role==='user'?'user':'agent',text:message.content,created_at:message.created_at,timestamp:new Date(message.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})})));
+      agentEngine.restoreTextHistory(data.sections.chat.data);
+      setSavedDrafts(data.sections.drafts.data);
+      setAuditLogs(data.audit.map(event=>({id:event.id,timestamp:new Date(event.occurred_at).toLocaleString(),actionType:event.action_type as AuditLog['actionType'],prompt:event.description,executionStatus:event.status as AuditLog['executionStatus'],details:event.details})));
+      const prefs=data.sections.preferences.data;
+      if(prefs){setTheme(prefs.theme);setStrictMode(prefs.strict_mode);guardrails.setStrictMode(prefs.strict_mode);setAutoGrouping(prefs.auto_grouping);}
+      setStorageReady(true);
+    }).catch(()=>{}).finally(()=>{if(active)setStorageLoading(false);});
+    return()=>{active=false;store.close();};
+  },[isGmailConnected]);
+  useEffect(()=>{if(storageReady)database.current?.schedule('drafts',savedDrafts);},[savedDrafts,storageReady]);
+  useEffect(()=>{if(storageReady)database.current?.schedule('preferences',{theme,strict_mode:strictMode,llm_enabled:true,auto_grouping:autoGrouping});},[theme,strictMode,autoGrouping,storageReady]);
+  useEffect(()=>{if(storageReady)database.current?.appendAudit(auditLogs.map(event=>({id:event.id,action_type:event.actionType,status:event.executionStatus,description:event.prompt,details:event.details,occurred_at:new Date().toISOString()})));},[auditLogs,storageReady]);
+  const saveChat=(messages:ChatViewMessage[])=>{
+    if(storageReady)database.current?.schedule('chat',boundedChat(messages.filter(message=>message.id!=='m-1').map(message=>({id:message.id,role:message.sender==='user'?'user':'assistant',content:message.text,created_at:message.created_at || new Date().toISOString()}))));
+  };
+  const reviewSavedDraft=(draft:StoredDraft)=>{
+    if(!realGmailProvider.isConnected())return;
+    setPendingActions(list=>[{id:crypto.randomUUID(),actionType:'SEND_EMAIL',title:'Revisar borrador recuperado: '+draft.subject,description:'Borrador recuperado de PostgreSQL. Comprueba en Enviados si hubo un intento anterior antes de aprobar.',safetyLevel:'REQUIRES_APPROVAL',payload:{savedDraftId:draft.id,recipient:draft.to,subject:draft.subject,body:draft.body,isReal:true,sessionKey:realGmailProvider.getSessionKey()},status:'PENDING',createdAt:new Date().toISOString(),aiExplanation:'Restaurado como borrador; necesita una nueva aprobación.',impactScore:'Alto',isEditable:true},...list]);
+    setActiveTab('pending');setMobileView('workspace');
+  };
+  const eraseStoredData=async()=>{
+    if(!database.current?.ready || !confirm('¿Vaciar el chat, los borradores, las preferencias y la auditoría de esta cuenta en PostgreSQL? No se borrarán correos del buzón.'))return;
+    try{await database.current.erase();location.reload();}catch(error){setStorageStatus((error as Error).message);}
+  };
+
   const handleToggleStrictMode = () => {
     const next = !strictMode;
     setStrictMode(next);
@@ -139,6 +204,10 @@ export function App() {
       const res = await agentEngine.processPrompt(prompt);
       if(sessionKey!==realGmailProvider.getSessionKey())throw new Error('La sesión cambió durante la consulta. Vuelve a intentarlo.');
       
+      if(storageReady){
+        const drafts:StoredDraft[]=res.pendingActions.filter(action=>action.actionType==='SEND_EMAIL').map(action=>({id:action.id,to:action.payload.recipient || '',cc:'',bcc:'',subject:action.payload.subject || '',body:action.payload.body || '',reply_to_id:null,attachments_omitted:false,created_at:new Date().toISOString()}));
+        if(drafts.length)setSavedDrafts(existing=>[...drafts,...existing].slice(0,50));
+      }
       if (res.pendingActions.length > 0) {
         setPendingActions(prev => [...res.pendingActions, ...prev]);
         setActiveTab('pending');
@@ -164,6 +233,13 @@ export function App() {
     if(executingActions.current.has(action.id) || attemptedActions.current.has(action.id)) return;
     if(!pendingActions.some(item=>item.id===action.id)) return;
     if(action.payload.sessionKey!==realGmailProvider.getSessionKey() || action.payload.isReal!==realGmailProvider.isConnected()){alert('Esta propuesta pertenece a otra sesión o modo. Recházala y prepara una nueva.');return;}
+    if(action.actionType==='SEND_EMAIL' && storageReady && savedDrafts.some(d=>d.id===(action.payload.savedDraftId || action.id))){
+      executingActions.current.add(action.id);
+      const remaining=savedDrafts.filter(d=>d.id!==(action.payload.savedDraftId || action.id));
+      try{await database.current!.save('drafts',remaining);setSavedDrafts(remaining);}
+      catch{alert('No se pudo retirar el borrador de PostgreSQL. No se inició el envío para evitar duplicados. Recarga NexoMail y revisa el estado.');return;}
+      finally{executingActions.current.delete(action.id);}
+    }
     const isReal = realGmailProvider.isConnected();
     executingActions.current.add(action.id);attemptedActions.current.add(action.id);
     action=structuredClone(action);
@@ -226,6 +302,7 @@ export function App() {
   };
 
   const handleRejectAction = (action: PendingAction) => {
+    setSavedDrafts(list=>list.filter(d=>d.id!==(action.payload.savedDraftId || action.id)));
     setPendingActions(prev => prev.filter(a => a.id !== action.id));
 
     setAuditLogs(prev => [
@@ -279,8 +356,10 @@ export function App() {
       <Header strictMode={strictMode} onToggleStrictMode={handleToggleStrictMode}
         pendingCount={pendingActions.length} totalEmails={emails.length} unreadCount={unreadCount}
         onRefresh={refreshEmails} isGmailConnected={isGmailConnected}
-        onOpenGmailAuth={() => navigate('settings')} theme={theme} onToggleTheme={handleToggleTheme}/>
-      {gmailError && <div className="api-alert-banner" role="alert"><AlertTriangle size={17}/><span>{gmailError}</span><button onClick={()=>setIsAuthModalOpen(true)} className="workspace-button">Reautorizar con Google</button></div>}
+        onOpenGmailAuth={()=>{if(isGmailConnected)setIsAuthModalOpen(true);else void authorizeGmail();}} onOpenSettings={()=>navigate('settings')} theme={theme} onToggleTheme={handleToggleTheme}/>
+      {isAuthorizing && <div className="storage-status" role="status">Esperando autorización en Google…</div>}
+      {gmailError && <div className="api-alert-banner" role="alert"><AlertTriangle size={17}/><span>{gmailError}</span><button disabled={isAuthorizing} onClick={()=>void authorizeGmail()} className="workspace-button">Reautorizar con Google</button></div>}
+      <div className="storage-status" role="status"><span>{storageStatus}</span>{storageReady && <button type="button" className="workspace-button" onClick={eraseStoredData}>Vaciar datos guardados</button>}<small>El chat, los borradores y la auditoría pueden contener datos personales. Revisa el estado antes de cerrar.</small></div>
       <div className="insights-summary" role="status" aria-live="polite">
         Análisis local automático · {emails.length} correos cargados · {securityAlerts.length} con señales de riesgo
         {lastSync && <span> · Actualizado {lastSync.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>}
@@ -294,14 +373,14 @@ export function App() {
         </aside>
         <main className="workspace-content">
           <section className="workspace-chat" hidden={currentView!=='chat'}>
-            <AgentChat onSendPrompt={handleSendPrompt} isProcessing={isProcessing}
+            <AgentChat onSendPrompt={handleSendPrompt} isProcessing={isProcessing || storageLoading} restoredMessages={restoredChat} onHistoryChange={saveChat}
               onCollapse={isFloating?()=>window.parent.postMessage({type:'EMAILAGENT_MINIMIZE',bridge:floatingBridge},location.origin):undefined}
               onClearHistory={()=>agentEngine.clearHistory()}/>
           </section>
-          <section className="workspace-page" hidden={currentView!=='inbox'}><EmailInbox emails={emails} onMarkRead={handleMarkRead} onTrash={handleTrash} selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory}/></section>
+          <section className="workspace-page" hidden={currentView!=='inbox'}>{savedDrafts.length>0 && <div className="saved-drafts"><h3>Borradores guardados en PostgreSQL</h3><p>Antes de recuperar uno, comprueba si hubo un envío anterior. Recuperarlo prepara una nueva revisión.</p>{savedDrafts.map(draft=><div key={draft.id}><strong>{draft.subject || '(Sin asunto)'}</strong><span>{draft.to}</span><button className="workspace-button" onClick={()=>reviewSavedDraft(draft)}>Revisar borrador</button></div>)}</div>}<EmailInbox automatic={autoGrouping} onAutomaticChange={setAutoGrouping} emails={emails} onMarkRead={handleMarkRead} onTrash={handleTrash} selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory}/></section>
           <section className="workspace-page workspace-scroll" hidden={currentView!=='pending'}><div className="workspace-section-heading"><ShieldAlert size={21}/><h2>Acciones pendientes de aprobación</h2><span className="workspace-count">{pendingActions.length}</span></div><div className="workspace-safety-note">Revisa el contenido y los destinatarios antes de aprobar. Los envíos y la papelera requieren tu confirmación.</div><PendingActionsList pendingActions={pendingActions} onApprove={handleApproveAction} onReject={handleRejectAction}/></section>
           <section className="workspace-page workspace-scroll" hidden={currentView!=='audit'}><AuditLogView logs={auditLogs}/></section>
-          {(currentView==='summary' || currentView==='settings') && <WorkspacePages view={currentView} emails={emails} pendingCount={pendingActions.length} logCount={auditLogs.length} theme={theme} strictMode={strictMode} onToggleTheme={handleToggleTheme} onToggleStrictMode={handleToggleStrictMode} onAuthorize={()=>setIsAuthModalOpen(true)} connected={isGmailConnected}/>}
+          {(currentView==='summary' || currentView==='settings') && <WorkspacePages view={currentView} emails={emails} pendingCount={pendingActions.length} logCount={auditLogs.length} theme={theme} strictMode={strictMode} onToggleTheme={handleToggleTheme} onToggleStrictMode={handleToggleStrictMode} onAuthorize={()=>{if(isGmailConnected)setIsAuthModalOpen(true);else void authorizeGmail();}} connected={isGmailConnected}/>}
         </main>
       </div>
       <footer className="brand-credits" aria-label="Autores del proyecto">NexoMail · Proyecto de tesis <span>Marlon Aguiño · Jonathan Pérez</span></footer>

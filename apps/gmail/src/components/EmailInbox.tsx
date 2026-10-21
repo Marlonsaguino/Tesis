@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Mail, Search, Trash2, ShieldCheck, ArrowLeft, RefreshCw } from 'lucide-react';
 import { MailSafety } from './MailSafety';
 import type { Email } from '../types/email';
-interface Props {emails:Email[];onMarkRead:(id:string)=>void;onTrash:(ids:string[])=>void;selectedCategory:string;onSelectCategory:(category:string)=>void}
+interface Props {automatic:boolean;onAutomaticChange:(enabled:boolean)=>void;emails:Email[];onMarkRead:(id:string)=>void;onTrash:(ids:string[])=>void;selectedCategory:string;onSelectCategory:(category:string)=>void}
 const categories=['Todos','Sin leer','Trabajo','Personal','Importante','Finanzas','Boletines','Sin clasificar','Con alertas'];
-export function EmailInbox({emails,onMarkRead,onTrash,selectedCategory,onSelectCategory}:Props){
+export function EmailInbox({emails,onMarkRead,onTrash,selectedCategory,onSelectCategory,automatic,onAutomaticChange}:Props){
   const [query,setQuery]=useState('');
-  const [automatic,setAutomatic]=useState(true);
+  const setAutomatic=onAutomaticChange;
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const selected=emails.find(email=>email.id===selectedId);
   const filtered=emails.filter(email=>{

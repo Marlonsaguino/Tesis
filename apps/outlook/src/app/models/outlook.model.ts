@@ -137,6 +137,8 @@ export interface MailAttachment {
   isInline?: boolean;
 }
 export interface MailDraft {
+  createdAt?: string;
+  attachmentsOmitted?: boolean;
   id: string;
   accountKey: string;
   mode: ExecutionMode;

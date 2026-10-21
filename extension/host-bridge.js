@@ -20,6 +20,11 @@
   host.microsoftAutoAllowed=async(email)=>!(await chrome.storage.local.get('nexomail.microsoft.disconnected'))['nexomail.microsoft.disconnected']?.[email.toLowerCase()];
   host.microsoftRemember=async(email,disconnected=false)=>{const key='nexomail.microsoft.disconnected',records=(await chrome.storage.local.get(key))[key] || {};records[email.toLowerCase()]=disconnected;await chrome.storage.local.set({[key]:records});};
   host.microsoftRedirect=()=>chrome.identity.getRedirectURL('microsoft');
+  host.microsoftSession=async(method,snapshot,email)=>{
+    const result=await chrome.runtime.sendMessage({type:'NEXOMAIL_MICROSOFT_SESSION',method,snapshot,email,contextKey});
+    if(!result?.ok)throw new Error(result?.error || 'No se pudo recuperar la sesión temporal de Microsoft.');
+    return result.value;
+  };
   host.openOptions=()=>chrome.runtime.openOptionsPage();
   window.emailAgentHost=host;
 })();

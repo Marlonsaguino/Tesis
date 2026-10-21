@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.api.health import router as health_router
 from app.api.agent import router as agent_router
+from app.api.storage import router as storage_router
 
 # Configuración básica de logging
 logging.basicConfig(
@@ -43,7 +44,7 @@ async def protect_local_api(request:Request,call_next):
         length=request.headers.get('content-length','0')
         if not length.isdigit() or int(length)>262144:return JSONResponse(status_code=413,content={'message':'Solicitud demasiado grande.'})
     return await call_next(request)
-app.add_middleware(CORSMiddleware,allow_origins=[],allow_origin_regex=r'^chrome-extension://[a-p]{32}$',allow_credentials=False,allow_methods=['GET','POST','OPTIONS'],allow_headers=['Content-Type','X-EmailAgent-Token'])
+app.add_middleware(CORSMiddleware,allow_origins=[],allow_origin_regex=r'^chrome-extension://[a-p]{32}$',allow_credentials=False,allow_methods=['GET','POST','OPTIONS'],allow_headers=['Content-Type','X-EmailAgent-Token','Authorization'])
 
 # Manejador global de excepciones para proteger la seguridad y no exponer trazas internas
 @app.exception_handler(Exception)
@@ -61,6 +62,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(gmail_router, prefix=settings.API_PREFIX)
 app.include_router(health_router, prefix=settings.API_PREFIX)
 app.include_router(agent_router, prefix=settings.API_PREFIX)
+app.include_router(storage_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/", tags=["Root"])

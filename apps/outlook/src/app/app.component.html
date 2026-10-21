@@ -128,6 +128,7 @@
   <!-- ═══════════════════════════════════════════════
        CUERPO: SIDEBAR + CONTENIDO
        ═══════════════════════════════════════════════ -->
+  <div class="storage-status" role="status"><span>{{databaseStatus()}}</span>@if(databaseReady()){<button type="button" class="btn btn-sm btn-outline-secondary" (click)="eraseDatabase()">Vaciar datos guardados</button>}<small>El chat, los borradores y la auditoría pueden contener datos personales. Revisa el estado antes de cerrar.</small></div>
   <div class="insights-summary" role="status" aria-live="polite">
     Análisis local automático · {{outlookService.folderMessages().length}} correos cargados · {{outlookService.securityAlerts().length}} con señales de riesgo
     @if(outlookService.lastIncomingSync();as date){<span> · Actualizado {{date | date:'HH:mm'}}</span>}
@@ -921,7 +922,7 @@
         <div class="section-body"><app-preferences />
           <div class="content-card p-4"><h3 class="h5">Acerca de NexoMail</h3><p class="brand-authors">Proyecto de tesis · Marlon Aguiño · Jonathan Pérez</p>
             <p>Trabaja con tu cuenta de Outlook. Las propuestas se revisan antes de enviar o mover mensajes a la papelera.</p>
-            <p>Los correos simulados, borradores, propuestas y auditoría se conservan en memoria hasta recargar. Solo las preferencias visuales se guardan en este navegador.</p>
+            <p>Con PostgreSQL conectado se conservan por cuenta el chat, los borradores guardados, las preferencias y la auditoría. Los adjuntos y las propuestas pendientes permanecen en memoria. Comprueba el estado de guardado antes de cerrar.</p>
             <button class="btn btn-outline-primary" (click)="checkBackendHealth()">Comprobar conexión del agente</button>
           </div>
         </div>

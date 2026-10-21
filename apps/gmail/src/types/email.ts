@@ -38,6 +38,7 @@ export type ActionType =
   | 'BULK_CLEANUP';
 
 export interface ActionPayload {
+  savedDraftId?: string;
   emailIds?: string[];
   recipient?: string;
   subject?: string;

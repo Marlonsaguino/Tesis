@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     EXTENSION_ACCESS_TOKEN: SecretStr = SecretStr('')
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
+    DB_ENABLED: bool = False
+    DB_HOST: str = '127.0.0.1'
+    DB_PORT: int = Field(default=5432, ge=1, le=65535)
+    DB_NAME: str = 'nexomail'
+    DB_USER: str = 'nexomail_app'
+    DB_PASSWORD: SecretStr = SecretStr('')
     
     LLM_PROVIDER: Literal['gemini', 'anthropic', 'ollama'] = 'gemini'
     LLM_MODEL: str = 'gemini-3.5-flash-lite'

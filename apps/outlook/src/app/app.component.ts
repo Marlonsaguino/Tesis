@@ -1,4 +1,6 @@
 import { Component, OnInit, OnDestroy, inject, signal, computed, effect, untracked, ViewChild, ElementRef } from '@angular/core';
+import {WorkspaceStorage,boundedChat} from './services/workspace-storage';
+import type {AuditLogItem} from './models/outlook.model';
 import { MailSafetyComponent } from './components/mail-safety.component';
 import { inspectHtml } from './services/mail-insights';
 import { CommonModule, DatePipe } from '@angular/common';
@@ -33,6 +35,11 @@ import { environment } from '../environments/environment';
 })
 export class AppComponent implements OnInit, OnDestroy {
   private incomingTimer:number|undefined;
+  private database:WorkspaceStorage|null=null;
+  private databaseEpoch=0;
+  readonly databaseReady=signal(false);
+  readonly databaseLoading=signal(false);
+  readonly databaseStatus=signal('PostgreSQL · Conecta tu cuenta para recuperar los datos');
   private readonly healthService = inject(HealthService);
   readonly prefs = inject(PreferenceService);
   readonly editingAction = signal<PendingAction | null>(null);
@@ -103,6 +110,22 @@ export class AppComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(()=>{
+      const key=this.outlookService.accountKey();this.outlookService.isAuthenticated();
+      untracked(()=>{void this.loadDatabase(key);});
+    },{allowSignalWrites:true});
+    effect(()=>{
+      const ready=this.databaseReady(),key=this.outlookService.accountKey();
+      const chat=this.chatMessages(),drafts=this.outlookService.drafts(),audit=this.actionService.auditLog();
+      const preferences={theme:this.prefs.theme(),strict_mode:this.prefs.strictMode(),llm_enabled:this.prefs.llmEnabled(),auto_grouping:this.outlookService.autoGrouping()};
+      if(!ready)return;
+      untracked(()=>{
+        this.database?.schedule('chat',boundedChat(chat.filter(m=>!m.id.startsWith('msg-init')).map(m=>({id:m.id,role:m.role,content:m.content,created_at:m.timestamp.toISOString()}))));
+        this.database?.schedule('drafts',drafts.filter(d=>d.mode==='real' && d.accountKey===key).slice(0,50).map(d=>({id:d.id,to:d.to,cc:d.cc,bcc:d.bcc,subject:d.subject,body:d.body,reply_to_id:d.replyToId || null,attachments_omitted:!!d.attachments.length || !!d.attachmentsOmitted,created_at:d.createdAt || new Date(0).toISOString()})));
+        this.database?.schedule('preferences',preferences);
+        this.database?.appendAudit(audit.filter(e=>e.mode==='real' && e.accountKey===key).map(e=>({id:e.id,action_type:e.action_type,status:e.status,description:e.description,details:e.details || '',occurred_at:e.timestamp.toISOString()})));
+      });
+    },{allowSignalWrites:true});
+    effect(()=>{
       const section=this.nav.activeSection();
       if(this.isFloating && this.floatingBridge){const sections:Record<string,string>={agente:'chat',bandeja:'mail',acciones:'actions',auditoria:'history',configuracion:'settings'};window.parent.postMessage({type:'EMAILAGENT_VIEW',bridge:this.floatingBridge,section:sections[section] || 'chat'},location.origin);}
     });
@@ -113,6 +136,34 @@ export class AppComponent implements OnInit, OnDestroy {
         this.agentInput=''; this.editingAction.set(null); this.agentEngine.set('Sin consulta en esta cuenta');
       });
     },{allowSignalWrites:true});
+  }
+
+  private async loadDatabase(key:string):Promise<void>{
+    const epoch=++this.databaseEpoch;
+    this.database?.close();this.database=null;this.databaseReady.set(false);this.databaseLoading.set(false);
+    this.actionService.auditLog.set([]);
+    if(this.outlookService.operationMode()!=='real' || !this.outlookService.isAuthenticated()){this.databaseStatus.set('PostgreSQL · Conecta una cuenta real para recuperar sus datos');return;}
+    this.databaseLoading.set(true);
+    const store=new WorkspaceStorage('microsoft',window.emailAgentHost.config,async()=>{
+      if(key!==this.outlookService.accountKey() || this.outlookService.operationMode()!=='real')throw new Error('La cuenta cambió.');
+      return this.outlookService.storageAccessToken();
+    },message=>{if(epoch===this.databaseEpoch)this.databaseStatus.set(message);});
+    this.database=store;
+    try{
+      const data=await store.load();
+      if(epoch!==this.databaseEpoch || key!==this.outlookService.accountKey())return;
+      if(data.sections.chat.data.length)this.chatMessages.set(data.sections.chat.data.map(message=>({id:message.id,role:message.role,content:message.content,timestamp:new Date(message.created_at)})));
+      this.outlookService.drafts.set(data.sections.drafts.data.map(d=>({id:d.id,accountKey:key,mode:'real',to:d.to,cc:d.cc,bcc:d.bcc,subject:d.subject,body:d.body,replyToId:d.reply_to_id || undefined,attachments:[],attachmentsOmitted:d.attachments_omitted,createdAt:d.created_at})));
+      this.actionService.auditLog.set(data.audit.map(e=>({id:e.id,timestamp:new Date(e.occurred_at),action_type:e.action_type as AuditLogItem['action_type'],description:e.description,provider:'microsoft',mode:'real',status:e.status as AuditLogItem['status'],accountKey:key,details:e.details})));
+      const prefs=data.sections.preferences.data;
+      if(prefs){this.prefs.update(prefs.theme,prefs.strict_mode,prefs.llm_enabled);this.outlookService.autoGrouping.set(prefs.auto_grouping);}
+      this.databaseReady.set(true);
+    }catch{/* Detailed state is visible through databaseStatus. */}
+    finally{if(epoch===this.databaseEpoch)this.databaseLoading.set(false);}
+  }
+  async eraseDatabase():Promise<void>{
+    if(!this.database?.ready || !confirm('¿Vaciar el chat, los borradores, las preferencias y la auditoría de esta cuenta en PostgreSQL? No se borrarán correos del buzón.'))return;
+    try{await this.database.erase();location.reload();}catch(error){this.databaseStatus.set((error as Error).message);}
   }
 
   ngOnInit(): void {
@@ -154,7 +205,7 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy():void{if(this.incomingTimer!==undefined)window.clearInterval(this.incomingTimer);}
+  ngOnDestroy():void{this.database?.close();if(this.incomingTimer!==undefined)window.clearInterval(this.incomingTimer);}
 
   private loadCategoriesFromBackend(): void {
     this.agentClient.getCategories().subscribe({
@@ -216,7 +267,7 @@ export class AppComponent implements OnInit, OnDestroy {
   // ─── Chat del Agente IA ──────────────────────────────────────────────
   sendMessage(): void {
     const text = this.agentInput.trim();
-    if (!text || this.isAgentThinking()) return;
+    if (!text || this.isAgentThinking() || this.databaseLoading()) return;
 
     const originKey = this.outlookService.accountKey();
     const originMode = this.outlookService.operationMode();

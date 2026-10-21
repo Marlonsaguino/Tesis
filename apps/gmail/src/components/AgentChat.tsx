@@ -3,7 +3,8 @@ import { Send, Bot, User, Cpu, Sparkles, ChevronDown, ChevronRight, Mail, Trash2
 import type { AgentStep } from '../types/email';
 import { fetchLlmHealth, type LlmHealth } from '../services/llmClient';
 
-interface Message {
+export interface Message {
+  created_at?:string;
   id: string;
   sender: 'user' | 'agent';
   text: string;
@@ -14,6 +15,8 @@ interface Message {
 interface AgentChatProps {
   onSendPrompt: (prompt: string) => Promise<{ answer: string; steps: AgentStep[] }>;
   isProcessing: boolean;
+  restoredMessages?: Message[] | null;
+  onHistoryChange?: (messages:Message[])=>void;
   onCollapse?: () => void;
   onClearHistory?: () => void;
 }
@@ -108,7 +111,7 @@ function formatModelDetails(llmHealth: LlmHealth | null) {
   };
 }
 
-export const AgentChat: React.FC<AgentChatProps> = ({ onSendPrompt, isProcessing, onCollapse, onClearHistory }) => {
+export const AgentChat: React.FC<AgentChatProps> = ({ onSendPrompt, isProcessing, onCollapse, onClearHistory, restoredMessages, onHistoryChange }) => {
   const [input, setInput] = useState('');
   const [llmHealth, setLlmHealth] = useState<LlmHealth | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
@@ -121,6 +124,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({ onSendPrompt, isProcessing
   };
 
   const [messages, setMessages] = useState<Message[]>([initialMessage]);
+  useEffect(()=>{if(restoredMessages!==null && restoredMessages!==undefined)setMessages(restoredMessages.length?restoredMessages:[initialMessage]);},[restoredMessages]);
+  useEffect(()=>{onHistoryChange?.(messages);},[messages]);
 
   useEffect(() => {
     fetchLlmHealth().then(setLlmHealth);
@@ -154,7 +159,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ onSendPrompt, isProcessing
     if (!promptText.trim() || isProcessing) return;
 
     const userMsg: Message = {
-      id: `u-${Date.now()}`,
+      id: crypto.randomUUID(),created_at:new Date().toISOString(),
       sender: 'user',
       text: promptText,
       timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
@@ -166,7 +171,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ onSendPrompt, isProcessing
     try {
       const res = await onSendPrompt(promptText);
       const agentMsg: Message = {
-        id: `a-${Date.now()}`,
+        id: crypto.randomUUID(),created_at:new Date().toISOString(),
         sender: 'agent',
         text: res.answer,
         timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),

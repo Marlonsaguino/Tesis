@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NexoMail · Gmail y Outlook",
-  "version": "1.7.0",
+  "version": "1.8.2",
   "minimum_chrome_version": "116",
   "description": "Asistente de correo con IA para Gmail y Outlook. Proyecto de tesis de Marlon Aguiño y Jonathan Pérez.",
   "permissions": [

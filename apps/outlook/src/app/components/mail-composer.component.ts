@@ -15,6 +15,7 @@ import { ActionService } from '../services/action.service';
     </header>
     <form class="p-3" (ngSubmit)="propose()">
       <p class="small text-secondary">{{draft.editingActionId ? 'Al guardar, se creará una nueva versión pendiente de tu aprobación.' : 'Escribe con calma. El mensaje no se envía hasta que apruebes su propuesta.'}}</p>
+      @if(draft.attachmentsOmitted){<div class="alert alert-warning">Este borrador tenía adjuntos de una sesión anterior que no se conservaron. Vuelve a adjuntarlos y revisa el mensaje antes de aprobar.</div>}
       @if(error) { <div class="alert alert-danger" role="alert">{{error}}</div> }
       <label class="form-label w-100">Para <input autofocus type="text" class="form-control" name="to" [(ngModel)]="draft.to" required placeholder="correo@ejemplo.com" autocomplete="off" inputmode="email"></label>
       <div class="row"><label class="form-label col-md-6">CC <input class="form-control" name="cc" [(ngModel)]="draft.cc"></label>
@@ -32,7 +33,7 @@ import { ActionService } from '../services/action.service';
         <button class="btn btn-primary" type="submit" [disabled]="busy">{{draft.editingActionId ? 'Guardar cambios para nueva aprobación' : 'Preparar propuesta de envío'}}</button>
         <button class="btn btn-outline-secondary" type="button" (click)="save()" [disabled]="busy">{{draft.editingActionId ? 'Cancelar edición' : 'Guardar borrador y cerrar'}}</button>
       </footer>
-      <p class="small text-secondary mt-2 mb-0">Guardado local durante esta sesión. Recargar la página elimina borradores y adjuntos locales.</p>
+      <p class="small text-secondary mt-2 mb-0">Con PostgreSQL conectado, los borradores guardados se conservan por cuenta. Los archivos adjuntos permanecen en memoria; vuelve a adjuntarlos después de recargar.</p>
     </form>
   </dialog>`,
   styles: [`.composer-dialog{width:min(740px,96vw);max-height:92dvh;border-radius:18px;padding:0;box-shadow:0 24px 90px #08162844;}.form-label{margin-bottom:12px;}.form-label input,.form-label textarea{margin-top:6px;}header h2{color:var(--ui-text);}`]

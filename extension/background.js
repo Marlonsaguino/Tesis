@@ -2,6 +2,9 @@ import {loadConfiguration} from './configuration.js';
 import {getPageContext} from './page-context.js';
 import {detectPlatform} from './platform.js';
 import {installGoogleAuth} from './google-auth.js';
+import './microsoft-session.js';
+// Session credentials stay in the extension's private in-memory storage.
+chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 let googleHostPromise;
 function googleHost(){
   if(!googleHostPromise)googleHostPromise=(async()=>{const host={config:{}};await installGoogleAuth(host);return host;})();
@@ -16,8 +19,17 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(!methods.has(message.method) || !Array.isArray(message.args) || message.args.length>1 || message.args.some(arg=>typeof arg!=='string' || arg.length>16384)){reply({ok:false,error:'Solicitud de autorización no válida.'});return;}
   googleHost().then(async host=>{
     host.config=await loadConfiguration();
-    const context=await getPageContext(message.contextKey,sender);
-    return host[message.method](...message.args,context);
+    let context=await getPageContext(message.contextKey,sender);
+    if(context && context.provider!=='gmail')throw new Error('Esta autorización pertenece a Gmail.');
+    const binding=context?'nexomail.google.tab.'+host.config.googleClientId+'.'+context.tabId+'.'+encodeURIComponent(context.slot):'';
+    if(binding && !context.email && message.method!=='googleLogin'){
+      const saved=(await chrome.storage.session.get(binding))[binding];
+      if(saved?.email)context={...context,email:saved.email};
+    }
+    const result=await host[message.method](...message.args,context);
+    if(binding && result?.email && ['googleLogin','googleRestore'].includes(message.method))await chrome.storage.session.set({[binding]:{email:result.email.toLowerCase()}});
+    if(binding && message.method==='googleDisconnect')await chrome.storage.session.remove(binding);
+    return result;
   }).then(value=>reply({ok:true,value:value ?? null})).catch(error=>reply({ok:false,error:error instanceof Error?error.message:'No se pudo recuperar la sesión de Google.'}));
   return true;
 });

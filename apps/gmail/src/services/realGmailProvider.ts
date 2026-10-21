@@ -67,6 +67,7 @@ export class RealGmailProvider {
     if(auth)this.saveConfig({...auth,clientSecret:'',redirectUri:''});
     else this.clearConfig();
   }
+  public storageAccessToken():Promise<string>{return this.accessToken();}
   private async accessToken():Promise<string> {
     const session=this.config?.sessionId;
     if(!session)throw new Error('Conecta Gmail mediante el botón de Google.');

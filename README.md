@@ -1,4 +1,14 @@
-## Actualización 1.2: chat flotante con burbuja movible
+## NexoMail 1.8.2
+
+Conectar Gmail y Reautorizar con Google abren directamente el flujo de Google con el cliente configurado en la extensión. La configuración de la aplicación sigue accesible desde Configuración. Google decide las pantallas de selección, aviso y consentimiento que corresponden. Compilación comprobada; autorización real pendiente de comprobación en el navegador.
+
+## NexoMail 1.8.1: recuperación de sesión al recargar
+
+Consulta SESION_AL_RECARGAR.md. Después de actualizar, conecta una vez la cuenta para guardar la sesión temporal de la extensión.
+
+## NexoMail 1.8.0: persistencia opcional con PostgreSQL
+
+Ejecuta CONFIGURAR_BASE_DATOS.cmd después de preparar la base y el usuario nexomail_app. Consulta [BASE_DE_DATOS_POSTGRESQL.md](BASE_DE_DATOS_POSTGRESQL.md) para configuración, tablas y límites.
 
 # EmailAgent: extensión para Gmail y Outlook
 
@@ -14,22 +24,22 @@ Integración de los dos proyectos de tesis en una extensión Manifest V3 para Ch
 - Autorización Google independiente de Microsoft, propuestas revisables y sesiones separadas.
 - Configuración pública desde las opciones de la extensión. Las claves del proveedor de IA se guardan solo en `backend/.env`.
 
-No se ha añadido base de datos. Los proyectos originales no se modificaron. Se conservan sus módulos y se integran mediante un contenedor y adaptadores; no se reescriben React y Angular como un único framework.
+Se incorpora PostgreSQL local opcional para guardar chat, borradores, preferencias y auditoría por cuenta. Los proyectos originales no se modificaron. Se conservan sus módulos y se integran mediante un contenedor y adaptadores; no se reescriben React y Angular como un único framework.
 
-## 1. Preparar y cargar la extensión
+## 1. Cargar la extensión ya compilada
 
-1. Clona o descarga el proyecto en una carpeta que conservarás.
-2. Instala Node.js 24 y ejecuta `RECOMPILAR.cmd` desde la raíz del proyecto. El script instala las dependencias y genera las interfaces compiladas en `extension/apps/`.
-3. Abre la página de extensiones del navegador:
+1. Extrae el ZIP en una carpeta que conservarás, por ejemplo `Documentos/EmailAgent`.
+2. Abre la página de extensiones del navegador:
    - Chrome: `chrome://extensions`
    - Edge: `edge://extensions`
    - Brave: `brave://extensions`
-4. Activa **Modo de desarrollador**.
-5. Pulsa **Cargar descomprimida** y selecciona la carpeta **extension** del proyecto. Es la que contiene `manifest.json`.
-6. Fija el icono de EmailAgent a la barra del navegador.
-7. Abre **Opciones** desde la ficha de la extensión o el engranaje de la ventana flotante.
+3. Activa **Modo de desarrollador**.
+4. Pulsa **Cargar descomprimida** y selecciona la carpeta **extension** del proyecto. Es la que contiene `manifest.json`.
+5. Fija el icono de EmailAgent a la barra del navegador.
+6. Abre **Opciones** desde la ficha de la extensión o el engranaje de la ventana flotante.
 
 No debes seleccionar la carpeta completa del proyecto ni instalar ambos proyectos por separado.
+
 ## 2. Preparar las autorizaciones de correo
 
 Estar conectado a Gmail u Outlook en una pestaña no autoriza a la extensión. Cada módulo debe solicitar permiso. La cuenta autorizada dentro del asistente puede ser distinta de la cuenta abierta en el sitio: comprueba el nombre y el correo antes de aprobar una acción.
@@ -99,7 +109,7 @@ Se incluyen las dos interfaces compiladas. Se completaron las compilaciones Type
 
 **Pendiente de comprobación en el navegador del usuario:** instalación como extensión, autorización real de Google y Microsoft con sus URI registrados, consultas de IA con su configuración y acciones reales de correo. No se han enviado correos ni accedido a sus cuentas durante esta integración. No se considera una versión publicada ni validada por Chrome Web Store.
 
-Cerrar el panel, recargar, actualizar la extensión o terminar la sesión puede perder borradores, propuestas, auditoría y conversaciones en memoria. La configuración pública y la clave de enlace se guardan en el almacenamiento local de la extensión; las autorizaciones de correo tienen su propio almacenamiento de sesión.
+Con PostgreSQL conectado se recuperan el chat reciente, los borradores guardados y la auditoría. Espera la confirmación de guardado antes de recargar. Las propuestas ejecutables y los archivos adjuntos de la sesión no se restauran. Si PostgreSQL falla o está desactivado, el aviso de la interfaz indica que los datos pueden perderse. La configuración pública y la clave de enlace se guardan en el almacenamiento local de la extensión; las autorizaciones de correo tienen su propio almacenamiento de sesión.
 
 ## Reconstruir después de cambiar código
 

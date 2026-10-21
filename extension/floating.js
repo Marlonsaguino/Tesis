@@ -24,9 +24,9 @@ if(!['gmail','outlook'].includes(provider) || !bridge || !allowedOrigins.has(par
 }else{
   displayMode(expanded);
   frame=document.createElement('iframe');frame.title=provider==='gmail'?'Chat de Gmail':'Chat de Outlook';
-  frame.src=chrome.runtime.getURL(`apps/${provider}/index.html`)+`?floating=1&bridge=${encodeURIComponent(bridge)}&version=1.7.0`;
+  frame.src=chrome.runtime.getURL(`apps/${provider}/index.html`)+`?floating=1&bridge=${encodeURIComponent(bridge)}&version=1.8.2`;
   frame.addEventListener('load',sendSection);document.getElementById('workspace').append(frame);waitForApp();
-  document.getElementById('retry').addEventListener('click',()=>{waitForApp();frame.src=chrome.runtime.getURL(`apps/${provider}/index.html`)+`?floating=1&bridge=${encodeURIComponent(bridge)}&version=1.7.0`;});
+  document.getElementById('retry').addEventListener('click',()=>{waitForApp();frame.src=chrome.runtime.getURL(`apps/${provider}/index.html`)+`?floating=1&bridge=${encodeURIComponent(bridge)}&version=1.8.2`;});
   document.getElementById('open-full').addEventListener('click',()=>chrome.tabs.create({url:chrome.runtime.getURL(`apps/${provider}/index.html`)}));
   for(const button of document.querySelectorAll('[data-section]'))button.addEventListener('click',()=>{select(button.dataset.section);sendSection();});
   window.addEventListener('message',event=>{

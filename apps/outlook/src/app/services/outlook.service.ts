@@ -11,7 +11,7 @@ import {
   EventType,
   InteractionStatus
 } from '@azure/msal-browser';
-import { Observable, from, throwError, of, defer } from 'rxjs';
+import { Observable, firstValueFrom, from, throwError, of, defer } from 'rxjs';
 import { switchMap, catchError, map, tap, finalize, timeout } from 'rxjs/operators';
 import { ActionService } from './action.service';
 import { MailDraft, MailFolder, MailAttachment, EmailSender } from '../models/outlook.model';
@@ -263,12 +263,14 @@ export class OutlookService {
   constructor() { void this.initializeMsal(); }
   private async initializeMsal(): Promise<void> {
     try {
+      const rememberedEmail=await (this.msalService as unknown as ExtensionMsalService).restoreSessionCache();
       await this.msalService.instance.initialize();
       const page=window.emailAgentHost.pageAccount;
       const accounts=this.msalService.instance.getAllAccounts();
-      let account=page?.email?accounts.find(value=>value.username.toLowerCase()===page.email.toLowerCase()):!page?(this.msalService.instance.getActiveAccount() || (accounts.length===1?accounts[0]:undefined)):undefined;
-      if(page?.email && !(await window.emailAgentHost.microsoftAutoAllowed(page.email)))account=undefined;
-      else if(!account && page?.email){try{const result=await (this.msalService as unknown as ExtensionMsalService).restoreAccount(page.email);account=result?.account || undefined;}catch{}}
+      const expectedEmail=page?.email || rememberedEmail;
+      let account=expectedEmail?accounts.find(value=>value.username.toLowerCase()===expectedEmail.toLowerCase()):!page?(this.msalService.instance.getActiveAccount() || (accounts.length===1?accounts[0]:undefined)):undefined;
+      if(expectedEmail && !(await window.emailAgentHost.microsoftAutoAllowed(expectedEmail)))account=undefined;
+      else if(!account && expectedEmail){try{const result=await (this.msalService as unknown as ExtensionMsalService).restoreAccount(expectedEmail);account=result?.account || undefined;}catch{}}
       this.isInitialized.set(true);
       if (account) { this.msalService.instance.setActiveAccount(account); this.currentAccount.set(account); this.isAuthenticated.set(true);this.setMode('real'); }
       else if(page){this.setMode('real');this.errorMessage.set(page.email?'Conecta esta cuenta para autorizar NexoMail: '+page.email:'No se pudo identificar tu cuenta automáticamente. Abre el menú de tu cuenta del correo o pulsa Conectar Outlook.');}
@@ -309,6 +311,7 @@ export class OutlookService {
     if (mode === 'real' && this.isAuthenticated()) { this.loadFolders(); this.loadUserProfileAndMessages(); }
     else if (mode === 'simulated') this.selectedMessage.set(this.displayedMessages()[0] || null);
   }
+  storageAccessToken():Promise<string>{return firstValueFrom(this.getAccessToken());}
   private getAccessToken(scopes = environment.azure.scopes): Observable<string> {
     const account = this.currentAccount();
     if (!account || !this.isAuthenticated()) return throwError(() => new Error('Conecta tu cuenta de Outlook.'));
@@ -411,6 +414,7 @@ export class OutlookService {
       attachments:[], replyToId:message?.id});
   }
   saveDraft(draft: MailDraft): void {
+    draft={...draft,createdAt:draft.createdAt || new Date().toISOString()};
     this.drafts.update(list => [structuredClone(draft), ...list.filter(d => d.id !== draft.id)]);
     this.composer.set(null);
   }
